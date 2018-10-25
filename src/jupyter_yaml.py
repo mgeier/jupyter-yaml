@@ -1,3 +1,5 @@
+import json as _json
+
 import nbformat as _nbformat
 from notebook.services.contents.filemanager import FileContentsManager as _CM
 
@@ -22,45 +24,64 @@ def generate_yaml_lines(nb):
         yield '\n'
         # TODO: write outputs if present
         # TODO: write execution_count if present
-        yield '  metadata: {\n'
-        # TODO: write metadata, formatted as JSON, indented with 4 spaces
-        yield '  }\n'
+        if cell.metadata:
+            yield '  metadata:\n'
+            for line in serialize_json(cell.metadata):
+                yield '    '
+                yield line
+            yield '\n'
         # TODO: warning/error if there are unknown attributes
-    yield 'metadata: {\n'
-    # TODO: write metadata, formatted as JSON
-    yield '}\n'
+    yield 'metadata:\n'
+    if nb.metadata:
+        for line in serialize_json(nb.metadata):
+            yield '  '
+            yield line
+        yield '\n'
     # TODO: warning/error if there are unknown attributes
 
 
-def from_yaml(lines):
-    lines = iter(lines)
+def serialize_json(data):
+    # Options should be the same as in nbformat!
+    # TODO: allow bytes? see BytesEncoder?
+    s = _json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
+    yield from s.splitlines(keepends=True)
+
+
+def from_yaml(source):
+    """
+
+    *source* must be either a `str` or an iterable of `str`.
+
+    In both cases, lines have to be terminated with ``'\\n'``
+    (a.k.a. "universal newlines").
+
+    """
+    if isinstance(source, str):
+        source = source.splitlines(keepends=True)
+    lines = iter(source)
     nb = _nbformat.v4.new_notebook()
-    line = None  # TODO: remove?
     try:
-        line = next(lines)
-        prefix, key, value = line.partition('nbformat: ')
-        assert not prefix, prefix
+        no_match, key, value = next(lines).partition('nbformat: ')
+        assert not no_match, no_match
         assert key
         nb.nbformat = int(value)
         assert nb.nbformat == 4
-        line = next(lines)
-        prefix, key, value = line.partition('nbformat_minor: ')
-        assert not prefix, prefix
+        no_match, key, value = next(lines).partition('nbformat_minor: ')
+        assert not no_match, no_match
         assert key
         nb.nbformat_minor = int(value)
-        line = next(lines)
-        prefix, key, value = line.partition('cells:')
-        assert not prefix, prefix
+        no_match, key, value = next(lines).partition('cells:')
+        assert not no_match, no_match
         assert key
         assert value == '\n'
     except StopIteration:
         # TODO: error, first three keys are required
-        pass
+        assert False
     try:
+        line = next(lines)
         while True:
-            line = next(lines)
-            prefix, key, value = line.partition('- cell_type: ')
-            if prefix:
+            no_match, key, value = line.partition('- cell_type: ')
+            if no_match:
                 break
             assert key
             if value == 'markdown\n':
@@ -72,31 +93,48 @@ def from_yaml(lines):
                 assert False
             line = next(lines)
             if line == '  source: |+2\n':
-                source = []
-                for line in lines:
-                    prefix, indent, source_line = line.partition('    ')
-                    if prefix:
-                        break
-                    assert indent
-                    source.append(source_line)
-                else:
-                    # TODO: error?
-                    pass
-                source = ''.join(source)
+                source, line = _get_prefixed_block(lines, '    ')
                 assert source.endswith('\n')
                 cell.source = source[:-1]
             else:
                 # TODO: ???
-                pass
+                assert False
+            if line is None:
+                break  # EOF
+            if line == '  metadata:\n':
+                block, line = _get_prefixed_block(lines, '    ')
+                cell.metadata = _json.loads(block)
             nb.cells.append(cell)
-            line = next(lines)  # TODO: temporary, skip closing } of metadata
+            if line is None:
+                break  # EOF
     except StopIteration:
-        pass
+        line = None  # No cells, no metadata
 
-    # TODO: check for metadata
+    if line == 'metadata:\n':
+        block, line = _get_prefixed_block(lines, '  ')
+        nb.metadata = _json.loads(block)
+
     # TODO: check for unknown keys?
+
+    assert line is None
+
+    # TODO: generator must be exhausted
+
     # TODO: check validity?
     return nb
+
+
+def _get_prefixed_block(lines, prefix):
+    block = []
+    for line in lines:
+        no_match, _, block_line = line.partition(prefix)
+        if no_match:
+            break
+        assert _ == prefix
+        block.append(block_line)
+    else:
+        line = None
+    return ''.join(block), line
 
 
 class FileContentsManager(_CM):
