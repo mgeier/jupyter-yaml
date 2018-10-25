@@ -14,16 +14,53 @@ def generate_yaml_lines(nb):
     for cell in nb.cells:
         # TODO: error if cell type is unknown
         yield '- cell_type: {}\n'.format(cell.cell_type)
+        if cell.cell_type == 'code' and cell.execution_count is not None:
+            yield '  execution_count: {}\n'.format(cell.execution_count)
         yield '  source: |+2\n'
-        for line in cell.source.splitlines(keepends=True):
-            yield '    '
-            yield line
-        if not cell.source or line.endswith('\n'):
-            yield '    '
-        # NB: This additional \n has to be removed when reading
-        yield '\n'
-        # TODO: write outputs if present
-        # TODO: write execution_count if present
+        yield from _generate_prefixed_block(cell.source, '    ')
+
+        # NB: everything else is optional!
+
+        if cell.cell_type == 'markdown':
+            # TODO: attachments (since v4.1)
+            pass
+        elif cell.cell_type == 'code':
+            if cell.outputs:
+                yield '  outputs:\n'
+                for out in cell.outputs:
+                    yield '  - output_type: {}\n'.format(out.output_type)
+                    if out.output_type == 'stream':
+                        # TODO: name, text
+                        pass
+                    elif out.output_type in ('display_data', 'execute_result'):
+                        if (out.output_type == 'execute_result'
+                                and out.execution_count is not None):
+                            # TODO: execution_count is redundant here?
+                            yield '    execution_count: {}\n'.format(
+                                out.execution_count)
+                        if out.data:
+                            yield '    data:\n'
+                            # TODO: sort MIME types? alphabetically, by importance?
+                            for k, v in out.data.items():
+                                # TODO: if str
+                                yield '      {}: |+2\n'.format(k)
+                                yield from _generate_prefixed_block(v, ' ' * 8)
+                                # TODO: if bytes?
+                                # TODO: if dict? -> JSON!
+                        # TODO: metadata
+                        pass
+                    elif out.output_type == 'error':
+                        # TODO: ename, evalue, traceback
+                        pass
+                    else:
+                        assert False
+        elif cell.cell_type == 'raw':
+            # TODO: attachments (since v4.1)
+            pass
+        else:
+            # TODO: unknown cell type
+            assert False
+
         if cell.metadata:
             yield '  metadata:\n'
             for line in serialize_json(cell.metadata):
@@ -61,18 +98,18 @@ def from_yaml(source):
     lines = iter(source)
     nb = _nbformat.v4.new_notebook()
     try:
-        no_match, key, value = next(lines).partition('nbformat: ')
+        no_match, _, value = next(lines).partition('nbformat: ')
         assert not no_match, no_match
-        assert key
+        assert _
         nb.nbformat = int(value)
         assert nb.nbformat == 4
-        no_match, key, value = next(lines).partition('nbformat_minor: ')
+        no_match, _, value = next(lines).partition('nbformat_minor: ')
         assert not no_match, no_match
-        assert key
+        assert _
         nb.nbformat_minor = int(value)
-        no_match, key, value = next(lines).partition('cells:')
+        no_match, _, value = next(lines).partition('cells:')
         assert not no_match, no_match
-        assert key
+        assert _
         assert value == '\n'
     except StopIteration:
         # TODO: error, first three keys are required
@@ -80,29 +117,77 @@ def from_yaml(source):
     try:
         line = next(lines)
         while True:
-            no_match, key, value = line.partition('- cell_type: ')
+            no_match, _, cell_type = line.partition('- cell_type: ')
             if no_match:
                 break
-            assert key
-            if value == 'markdown\n':
+            assert _
+            line = next(lines)
+            if cell_type == 'markdown\n':
                 cell = _nbformat.v4.new_markdown_cell()
-            elif value == 'code\n':
+            elif cell_type == 'code\n':
                 cell = _nbformat.v4.new_code_cell()
+                prefix = '  execution_count: '
+                if line.startswith(prefix):
+                    # TODO: check for errors?
+                    cell.execution_count = int(line[len(prefix):])
+                    line = next(lines)
             else:
                 # TODO
                 assert False
-            line = next(lines)
             if line == '  source: |+2\n':
-                source, line = _get_prefixed_block(lines, '    ')
+                source, line = _read_prefixed_block(lines, '    ')
                 assert source.endswith('\n')
                 cell.source = source[:-1]
             else:
                 # TODO: ???
                 assert False
+
+            # TODO: check cell_type again!
+
+            if line == '  outputs:\n':
+                cell.outputs = []
+                line = next(lines)
+                while True:
+                    out = {}
+                    prefix = '  - output_type: '
+                    if line.startswith(prefix):
+                        assert line.endswith('\n')
+                        out['output_type'] = line[len(prefix):-1]
+                    else:
+                        break
+                    cell.outputs.append(out)
+                    line = next(lines)
+
+                    # TODO: different things depending on output_type
+
+                    prefix = '    execution_count: '
+                    if line.startswith(prefix):
+                        assert line.endswith('\n')
+                        out['execution_count'] = int(line[len(prefix):-1])
+                        line = next(lines)
+
+                    if line == '    data:\n':
+                        out['data'] = {}
+                        line = next(lines)
+                        while True:
+                            if line.startswith(' ' * 6):
+                                suffix = ': |+2\n'
+                                assert line.endswith(suffix)
+                                mime_type = line[6:-len(suffix)]
+                                data, line = _read_prefixed_block(
+                                    lines, ' ' * 8)
+                                out['data'][mime_type] = data
+                            else:
+                                break
+                    else:
+                        break
+
+                    # TODO: read metadata
+
             if line is None:
                 break  # EOF
             if line == '  metadata:\n':
-                block, line = _get_prefixed_block(lines, '    ')
+                block, line = _read_prefixed_block(lines, '    ')
                 cell.metadata = _json.loads(block)
             nb.cells.append(cell)
             if line is None:
@@ -111,12 +196,12 @@ def from_yaml(source):
         line = None  # No cells, no metadata
 
     if line == 'metadata:\n':
-        block, line = _get_prefixed_block(lines, '  ')
+        block, line = _read_prefixed_block(lines, '  ')
         nb.metadata = _json.loads(block)
 
     # TODO: check for unknown keys?
 
-    assert line is None
+    assert line is None, repr(line)
 
     # TODO: generator must be exhausted
 
@@ -124,7 +209,16 @@ def from_yaml(source):
     return nb
 
 
-def _get_prefixed_block(lines, prefix):
+def _generate_prefixed_block(text, prefix):
+    for line in text.splitlines(keepends=True):
+        yield prefix
+        yield line
+    if not text or line.endswith('\n'):
+        yield '    '
+    yield '\n'  # NB: This additional \n has to be removed when reading
+
+
+def _read_prefixed_block(lines, prefix):
     block = []
     for line in lines:
         no_match, _, block_line = line.partition(prefix)
