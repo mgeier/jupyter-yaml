@@ -6,6 +6,11 @@ from notebook.services.contents.filemanager import FileContentsManager as _CM
 SUFFIX = '.jupyter'
 
 
+# TODO: somehow use JSON schema? nbformat.validator.get_validator(4, 2)
+
+# TODO: allow completely empty lines (or with fewer spaces than necessary)?
+
+
 def generate_yaml_lines(nb):
     assert nb.nbformat == 4
     yield 'nbformat: 4\n'
@@ -30,8 +35,11 @@ def generate_yaml_lines(nb):
                 for out in cell.outputs:
                     yield '  - output_type: {}\n'.format(out.output_type)
                     if out.output_type == 'stream':
-                        # TODO: name, text
-                        pass
+                        yield '    name: {}\n'.format(out.name)
+                        yield '    text: |+2\n'
+                        yield from _generate_prefixed_block(
+                            out.text, ' ' * 6, add_newline=False)
+                        # TODO: avoid superfluous \n?
                     elif out.output_type in ('display_data', 'execute_result'):
                         if (out.output_type == 'execute_result'
                                 and out.execution_count is not None):
@@ -44,7 +52,8 @@ def generate_yaml_lines(nb):
                             for k, v in out.data.items():
                                 # TODO: if str
                                 yield '      {}: |+2\n'.format(k)
-                                yield from _generate_prefixed_block(v, ' ' * 8)
+                                yield from _generate_prefixed_block(
+                                    v, ' ' * 8, add_newline=False)
                                 # TODO: if bytes?
                                 # TODO: if dict? -> JSON!
                         # TODO: metadata
@@ -160,29 +169,50 @@ def from_yaml(source):
 
                     # TODO: different things depending on output_type
 
-                    prefix = '    execution_count: '
-                    if line.startswith(prefix):
-                        assert line.endswith('\n')
-                        out['execution_count'] = int(line[len(prefix):-1])
+                    if out['output_type'] == 'stream':
+                        # TODO name and text are required!
+                        prefix = '    name: '
+                        if line.startswith(prefix):
+                            assert line.endswith('\n')
+                            out['name'] = line[len(prefix):-1]
                         line = next(lines)
+                        if line == '    text: |+2\n':
+                            text, line = _read_prefixed_block(lines, ' ' * 6)
+                            # TODO: no \n has to be removed?
+                            out['text'] = text
+                    elif out['output_type'] in ('display_data',
+                                                'execute_result'):
+                        if out['output_type'] == 'execute_result':
+                            prefix = '    execution_count: '
+                            if line.startswith(prefix):
+                                assert line.endswith('\n')
+                                out['execution_count'] = int(line[len(prefix):-1])
+                                line = next(lines)
+                        if line == '    data:\n':
+                            out['data'] = {}
+                            line = next(lines)
+                            while True:
+                                if line.startswith(' ' * 6):
+                                    suffix = ': |+2\n'
+                                    # TODO: if endwith suffix -> str
+                                    # TODO: if endswith ':\n' -> JSON dict
+                                    # TODO: is bytes allowed?
+                                    assert line.endswith(suffix)
+                                    mime_type = line[6:-len(suffix)]
+                                    data, line = _read_prefixed_block(
+                                        lines, ' ' * 8)
+                                    # TODO: remove trailing \n?
+                                    out['data'][mime_type] = data
+                                else:
+                                    break
+                        else:
+                            break
 
-                    if line == '    data:\n':
-                        out['data'] = {}
-                        line = next(lines)
-                        while True:
-                            if line.startswith(' ' * 6):
-                                suffix = ': |+2\n'
-                                assert line.endswith(suffix)
-                                mime_type = line[6:-len(suffix)]
-                                data, line = _read_prefixed_block(
-                                    lines, ' ' * 8)
-                                out['data'][mime_type] = data
-                            else:
-                                break
-                    else:
-                        break
+                        # TODO: read metadata
 
-                    # TODO: read metadata
+                    elif out['output_type'] == 'error':
+                        # TODO
+                        pass
 
             if line is None:
                 break  # EOF
@@ -209,13 +239,14 @@ def from_yaml(source):
     return nb
 
 
-def _generate_prefixed_block(text, prefix):
+def _generate_prefixed_block(text, prefix, add_newline=True):
     for line in text.splitlines(keepends=True):
         yield prefix
         yield line
-    if not text or line.endswith('\n'):
-        yield '    '
-    yield '\n'  # NB: This additional \n has to be removed when reading
+    if add_newline:
+        if not text or line.endswith('\n'):
+            yield '    '
+        yield '\n'  # NB: This additional \n has to be removed when reading
 
 
 def _read_prefixed_block(lines, prefix):
