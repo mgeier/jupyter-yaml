@@ -39,28 +39,34 @@ def generate_yaml_lines(nb):
                         yield '    text: |+2\n'
                         yield from _generate_prefixed_block(
                             out.text, ' ' * 6, add_newline=False)
-                        # TODO: avoid superfluous \n?
                     elif out.output_type in ('display_data', 'execute_result'):
                         if (out.output_type == 'execute_result'
                                 and out.execution_count is not None):
-                            # TODO: execution_count is redundant here?
                             yield '    execution_count: {}\n'.format(
                                 out.execution_count)
                         if out.data:
                             yield '    data:\n'
-                            # TODO: sort MIME types? alphabetically, by importance?
+                            # TODO: sort MIME types?
+                            # TODO: alphabetically, by importance?
+                            # TODO: text-based formats first?
                             for k, v in out.data.items():
                                 # TODO: if str
                                 yield '      {}: |+2\n'.format(k)
-                                yield from _generate_prefixed_block(
-                                    v, ' ' * 8, add_newline=False)
+                                yield from _generate_prefixed_block(v, ' ' * 8)
                                 # TODO: if bytes?
                                 # TODO: if dict? -> JSON!
                         # TODO: metadata
                         pass
                     elif out.output_type == 'error':
-                        # TODO: ename, evalue, traceback
-                        pass
+                        yield '    ename: {}\n'.format(out.ename)
+                        yield '    evalue: |+2\n'
+                        yield from _generate_prefixed_block(
+                            out.evalue, ' ' * 6)
+                        # NB: Traceback lines don't seem to be \n-terminated,
+                        #     but they may contain \n in the middle!
+                        yield '    traceback: |+2\n'
+                        tb = '\n'.join(out.traceback)
+                        yield from _generate_prefixed_block(tb, ' ' * 6)
                     else:
                         assert False
         elif cell.cell_type == 'raw':
@@ -211,9 +217,19 @@ def from_yaml(source):
                         # TODO: read metadata
 
                     elif out['output_type'] == 'error':
-                        # TODO
-                        pass
-
+                        # TODO: all fields are required
+                        prefix = '    ename: '
+                        if line.startswith(prefix):
+                            assert line.endswith('\n')
+                            out['ename'] = line[len(prefix):-1]
+                            line = next(lines)
+                        if line == '    evalue: |+2\n':
+                            value, line = _read_prefixed_block(lines, ' ' * 6)
+                            # TODO: last \n has to be removed?
+                            out['evalue'] = value
+                        if line == '    traceback: |+2\n':
+                            tb, line = _read_prefixed_block(lines, ' ' * 6)
+                            out['traceback'] = tb.splitlines()
             if line is None:
                 break  # EOF
             if line == '  metadata:\n':
