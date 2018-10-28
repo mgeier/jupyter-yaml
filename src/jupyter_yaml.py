@@ -22,7 +22,7 @@ def generate_yaml_lines(nb):
         if cell.cell_type == 'code' and cell.execution_count is not None:
             yield '  execution_count: {}\n'.format(cell.execution_count)
         yield '  source: |+2\n'
-        yield from _generate_prefixed_block(cell.source, '    ')
+        yield from _prefixed_block(cell.source, ' ' * 4)
 
         # NB: everything else is optional!
 
@@ -37,7 +37,7 @@ def generate_yaml_lines(nb):
                     if out.output_type == 'stream':
                         yield '    name: {}\n'.format(out.name)
                         yield '    text: |+2\n'
-                        yield from _generate_prefixed_block(
+                        yield from _prefixed_block(
                             out.text, ' ' * 6, add_newline=False)
                     elif out.output_type in ('display_data', 'execute_result'):
                         if (out.output_type == 'execute_result'
@@ -50,23 +50,25 @@ def generate_yaml_lines(nb):
                             # TODO: alphabetically, by importance?
                             # TODO: text-based formats first?
                             for k, v in out.data.items():
-                                # TODO: if str
-                                yield '      {}: |+2\n'.format(k)
-                                yield from _generate_prefixed_block(v, ' ' * 8)
-                                # TODO: if bytes?
-                                # TODO: if dict? -> JSON!
+                                # TODO: how does nbformat differentiate?
+                                if k.endswith('json'):
+                                    yield '      {}:\n'.format(k)
+                                    yield from _prefixed_block(
+                                        _serialize_json(v), ' ' * 8)
+                                else:
+                                    yield '      {}: |+2\n'.format(k)
+                                    yield from _prefixed_block(v, ' ' * 8)
                         # TODO: metadata
                         pass
                     elif out.output_type == 'error':
                         yield '    ename: {}\n'.format(out.ename)
                         yield '    evalue: |+2\n'
-                        yield from _generate_prefixed_block(
-                            out.evalue, ' ' * 6)
+                        yield from _prefixed_block(out.evalue, ' ' * 6)
                         # NB: Traceback lines don't seem to be \n-terminated,
                         #     but they may contain \n in the middle!
                         yield '    traceback: |+2\n'
                         tb = '\n'.join(out.traceback)
-                        yield from _generate_prefixed_block(tb, ' ' * 6)
+                        yield from _prefixed_block(tb, ' ' * 6)
                     else:
                         assert False
         elif cell.cell_type == 'raw':
@@ -78,25 +80,18 @@ def generate_yaml_lines(nb):
 
         if cell.metadata:
             yield '  metadata:\n'
-            for line in serialize_json(cell.metadata):
-                yield '    '
-                yield line
-            yield '\n'
+            yield from _prefixed_block(_serialize_json(cell.metadata), ' ' * 4)
         # TODO: warning/error if there are unknown attributes
     yield 'metadata:\n'
     if nb.metadata:
-        for line in serialize_json(nb.metadata):
-            yield '  '
-            yield line
-        yield '\n'
+        yield from _prefixed_block(_serialize_json(nb.metadata), ' ' * 2)
     # TODO: warning/error if there are unknown attributes
 
 
-def serialize_json(data):
+def _serialize_json(data):
     # Options should be the same as in nbformat!
     # TODO: allow bytes? see BytesEncoder?
-    s = _json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
-    yield from s.splitlines(keepends=True)
+    return _json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
 
 
 def from_yaml(source):
@@ -255,7 +250,7 @@ def from_yaml(source):
     return nb
 
 
-def _generate_prefixed_block(text, prefix, add_newline=True):
+def _prefixed_block(text, prefix, add_newline=True):
     for line in text.splitlines(keepends=True):
         yield prefix
         yield line
