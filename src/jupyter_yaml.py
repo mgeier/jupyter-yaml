@@ -88,12 +88,6 @@ def generate_yaml_lines(nb):
     # TODO: warning/error if there are unknown attributes
 
 
-def _serialize_json(data):
-    # Options should be the same as in nbformat!
-    # TODO: allow bytes? see BytesEncoder?
-    return _json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
-
-
 def from_yaml(source):
     """
 
@@ -105,33 +99,34 @@ def from_yaml(source):
     """
     if isinstance(source, str):
         source = source.splitlines(keepends=True)
-    lines = iter(source)
+    lines = enumerate(source)
     nb = _nbformat.v4.new_notebook()
     try:
-        no_match, _, value = next(lines).partition('nbformat: ')
-        assert not no_match, no_match
-        assert _
+        no_match, _, value = next(lines)[1].partition('nbformat: ')
+        if no_match:
+            # TODO: custom exception class?
+            raise RuntimeError('First line must specify "nbformat"')
         nb.nbformat = int(value)
+        # TODO: check for errors
         assert nb.nbformat == 4
-        no_match, _, value = next(lines).partition('nbformat_minor: ')
-        assert not no_match, no_match
-        assert _
+        no_match, _, value = next(lines)[1].partition('nbformat_minor: ')
+        if no_match:
+            raise RuntimeError('Second line must specify "nbformat_minor"')
+        # TODO: check for errors
         nb.nbformat_minor = int(value)
-        no_match, _, value = next(lines).partition('cells:')
-        assert not no_match, no_match
-        assert _
-        assert value == '\n'
+        nr, line = next(lines)
+        if line != 'cells:\n':
+            raise RuntimeError('Third line must contain "cells:"')
     except StopIteration:
-        # TODO: error, first three keys are required
-        assert False
+        raise RuntimeError('Too few lines')
     try:
-        line = next(lines)
+        nr, line = next(lines)
         while True:
             no_match, _, cell_type = line.partition('- cell_type: ')
             if no_match:
                 break
             assert _
-            line = next(lines)
+            nr, line = next(lines)
             if cell_type == 'markdown\n':
                 cell = _nbformat.v4.new_markdown_cell()
             elif cell_type == 'code\n':
@@ -140,12 +135,12 @@ def from_yaml(source):
                 if line.startswith(prefix):
                     # TODO: check for errors?
                     cell.execution_count = int(line[len(prefix):])
-                    line = next(lines)
+                    nr, line = next(lines)
             else:
                 # TODO
                 assert False
             if line == '  source: |+2\n':
-                source, line = _read_prefixed_block(lines, '    ')
+                source, line = _read_prefixed_block(lines, ' ' * 4)
                 assert source.endswith('\n')
                 cell.source = source[:-1]
             else:
@@ -156,7 +151,7 @@ def from_yaml(source):
 
             if line == '  outputs:\n':
                 cell.outputs = []
-                line = next(lines)
+                nr, line = next(lines)
                 while True:
                     out = {}
                     prefix = '  - output_type: '
@@ -166,7 +161,7 @@ def from_yaml(source):
                     else:
                         break
                     cell.outputs.append(out)
-                    line = next(lines)
+                    nr, line = next(lines)
 
                     # TODO: different things depending on output_type
 
@@ -176,7 +171,7 @@ def from_yaml(source):
                         if line.startswith(prefix):
                             assert line.endswith('\n')
                             out['name'] = line[len(prefix):-1]
-                        line = next(lines)
+                        nr, line = next(lines)
                         if line == '    text: |+2\n':
                             text, line = _read_prefixed_block(lines, ' ' * 6)
                             # TODO: no \n has to be removed?
@@ -188,17 +183,24 @@ def from_yaml(source):
                             if line.startswith(prefix):
                                 assert line.endswith('\n')
                                 out['execution_count'] = int(line[len(prefix):-1])
-                                line = next(lines)
+                                nr, line = next(lines)
                         if line == '    data:\n':
                             out['data'] = {}
-                            line = next(lines)
+                            nr, line = next(lines)
                             while True:
                                 if line.startswith(' ' * 6):
-                                    suffix = ': |+2\n'
+                                    text_suffix = ': |+2\n'
+                                    json_suffix = ':\n'
+                                    if line.endswith(text_suffix):
+                                        pass
+                                    elif line.endswith(json_suffix):
+                                        pass
+                                    else:
+                                        pass
+
                                     # TODO: if endwith suffix -> str
                                     # TODO: if endswith ':\n' -> JSON dict
                                     # TODO: is bytes allowed?
-                                    assert line.endswith(suffix)
                                     mime_type = line[6:-len(suffix)]
                                     data, line = _read_prefixed_block(
                                         lines, ' ' * 8)
@@ -217,7 +219,7 @@ def from_yaml(source):
                         if line.startswith(prefix):
                             assert line.endswith('\n')
                             out['ename'] = line[len(prefix):-1]
-                            line = next(lines)
+                            nr, line = next(lines)
                         if line == '    evalue: |+2\n':
                             value, line = _read_prefixed_block(lines, ' ' * 6)
                             # TODO: last \n has to be removed?
@@ -256,13 +258,13 @@ def _prefixed_block(text, prefix, add_newline=True):
         yield line
     if add_newline:
         if not text or line.endswith('\n'):
-            yield '    '
+            yield prefix
         yield '\n'  # NB: This additional \n has to be removed when reading
 
 
 def _read_prefixed_block(lines, prefix):
     block = []
-    for line in lines:
+    for nr, line in lines:
         no_match, _, block_line = line.partition(prefix)
         if no_match:
             break
@@ -271,6 +273,12 @@ def _read_prefixed_block(lines, prefix):
     else:
         line = None
     return ''.join(block), line
+
+
+def _serialize_json(data):
+    # Options should be the same as in nbformat!
+    # TODO: allow bytes? see BytesEncoder?
+    return _json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
 
 
 class FileContentsManager(_CM):
