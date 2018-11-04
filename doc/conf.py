@@ -1,0 +1,97 @@
+project = 'Jupyter YAML'
+author = 'Matthias Geier'
+copyright = '2018, ' + author
+
+extensions = [
+    'nbsphinx',
+    'sphinx.ext.autodoc',
+    'sphinx.ext.intersphinx',
+]
+
+highlight_language = 'none'
+master_doc = 'index'
+exclude_patterns = ['**.ipynb_checkpoints']
+
+# -- nbsphinx-related options ---------------------------------------------
+
+nbsphinx_contents_manager = 'jupyter_yaml.FileContentsManager'
+
+source_suffix = {
+    '.jupyter': 'jupyter_notebook',
+}
+
+nbsphinx_execute_arguments = ['--InlineBackend.figure_formats={"svg", "pdf"}']
+
+nbsphinx_prolog = r"""
+{% set docname = env.doc2path(env.docname, base='doc') %}
+
+.. only:: html
+
+    .. role:: raw-html(raw)
+        :format: html
+
+    .. nbinfo::
+
+        This page was generated from `{{ docname }}`__.
+        Interactive online version:
+        :raw-html:`<a href="https://mybinder.org/v2/gh/mgeier/jupyter-yaml/{{ env.config.release }}?filepath={{ docname }}"><img alt="Binder badge" src="https://mybinder.org/badge.svg" style="vertical-align:text-bottom"></a>`
+
+    __ https://github.com/mgeier/jupyter-yaml/blob/
+        {{ env.config.release }}/{{ docname }}
+
+.. raw:: latex
+
+    \nbsphinxstartnotebook{\scriptsize\noindent\strut
+    \textcolor{gray}{The following section was generated from
+    \sphinxcode{\sphinxupquote{\strut {{ docname | escape_latex }}}} \dotfill}}
+"""
+
+nbsphinx_epilog = r"""
+.. raw:: latex
+
+    \nbsphinxstopnotebook{\scriptsize\noindent\strut
+    \textcolor{gray}{\dotfill\ \sphinxcode{\sphinxupquote{\strut
+    {{ env.doc2path(env.docname, base='doc') | escape_latex }}}} ends here.}}
+"""
+
+# -- Get version information and date from Git ----------------------------
+
+try:
+    from subprocess import check_output
+    release = check_output(['git', 'describe', '--tags', '--always'])
+    release = release.decode().strip()
+    today = check_output(['git', 'show', '-s', '--format=%ad', '--date=short'])
+    today = today.decode().strip()
+except Exception:
+    release = '<unknown>'
+    today = '<unknown date>'
+
+# -- Options for HTML output ----------------------------------------------
+
+html_title = project + ' version ' + release
+html_sourcelink_suffix = ''
+html_scaled_image_link = False
+
+# -- Options for LaTeX output ---------------------------------------------
+
+latex_elements = {
+    'papersize': 'a4paper',
+    'printindex': '',
+    'preamble': r"""
+\usepackage[sc,osf]{mathpazo}
+\linespread{1.05}  % see http://www.tug.dk/FontCatalogue/urwpalladio/
+\renewcommand{\sfdefault}{pplj}  % Palatino instead of sans serif
+\IfFileExists{zlmtt.sty}{
+    \usepackage[light,scaled=1.05]{zlmtt}  % light typewriter font from lmodern
+}{
+    \renewcommand{\ttdefault}{lmtt}  % typewriter font from lmodern
+}
+""",
+}
+
+latex_documents = [
+    (master_doc, 'JupyterYAML.tex', project, author, 'howto'),
+]
+
+latex_show_urls = 'footnote'
+latex_show_pagerefs = True
