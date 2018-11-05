@@ -14,10 +14,8 @@ exclude_patterns = ['**.ipynb_checkpoints']
 
 # -- nbsphinx-related options ---------------------------------------------
 
-nbsphinx_contents_manager = 'jupyter_yaml.FileContentsManager'
-
-source_suffix = {
-    '.jupyter': 'jupyter_notebook',
+nbsphinx_custom_formats = {
+    '.jupyter': 'jupyter_yaml.from_yaml',
 }
 
 nbsphinx_execute_arguments = ['--InlineBackend.figure_formats={"svg", "pdf"}']
