@@ -22,6 +22,9 @@ def generate_yaml_lines(nb):
         if cell.cell_type == 'code' and cell.execution_count is not None:
             yield _line('  ', 'execution_count', cell.execution_count)
         yield from _text_block('  ', 'source', cell.source)
+        if cell.source == '' or cell.source.endswith('\n'):
+            # NB: This additional \n has to be removed when reading
+            yield '    \n'
 
         # NB: everything else is optional!
 
@@ -225,7 +228,7 @@ def _code_cell_output(out):
     yield _line('  - ', 'output_type', out.output_type)
     if out.output_type == 'stream':
         yield _line(' ' * 4, 'name', out.name)
-        yield from _text_block(' ' * 4, 'text', out.text, add_newline=False)
+        yield from _text_block(' ' * 4, 'text', out.text)
     elif out.output_type in ('display_data', 'execute_result'):
         if (out.output_type == 'execute_result'
                 and out.execution_count is not None):
@@ -241,27 +244,24 @@ def _code_cell_output(out):
                 if k.endswith('json'):
                     yield from _json_block(' ' * 6, k, v)
                 else:
-                    yield from _text_block(' ' * 6, k, v, add_newline=False)
+                    yield from _text_block(' ' * 6, k, v)
         # TODO: metadata
     elif out.output_type == 'error':
         yield _line(' ' * 4, 'ename', out.ename)
-        yield from _text_block(' ' * 4, 'evalue', out.evalue, add_newline=False)
+        yield from _text_block(' ' * 4, 'evalue', out.evalue)
         # NB: Traceback lines don't seem to be \n-terminated,
         #     but they may contain \n in the middle!
         tb = '\n'.join(out.traceback)
         yield from _text_block(' ' * 4, 'traceback', tb)
+        # TODO: remove this, just to be safe:
+        assert not tb.endswith('\n')
     else:
         raise RuntimeError('Unknown output type: {!r}'.format(out.output_type))
 
 
-def _prefixed_block(prefix, text, add_newline=True):
-    for line in text.splitlines(keepends=True):
-        yield prefix
-        yield line
-    if add_newline:
-        if not text or line.endswith('\n'):
-            yield prefix
-        yield '\n'  # NB: This additional \n has to be removed when reading
+def _prefixed_block(prefix, text):
+    for line in text.splitlines():
+        yield prefix + line + '\n'
 
 
 def _read_prefixed_block(lines, prefix):
@@ -277,9 +277,9 @@ def _read_prefixed_block(lines, prefix):
     return ''.join(block), (nr, line)
 
 
-def _text_block(prefix, key, value, add_newline=True):
+def _text_block(prefix, key, value):
     yield '{}{}: |+2\n'.format(prefix, key)
-    yield from _prefixed_block(prefix + '  ', value, add_newline=add_newline)
+    yield from _prefixed_block(prefix + '  ', value)
 
 
 def _json_block(prefix, key, value):
