@@ -2,7 +2,6 @@ import json as _json
 
 import nbformat as _nbformat
 import notebook.services.contents.filemanager as _fm
-#from notebook.services.contents.checkpoints import HTTPError as _HTTPError
 
 SUFFIX = '.jupyter'
 
@@ -13,17 +12,16 @@ SUFFIX = '.jupyter'
 
 
 def generate_yaml_lines(nb):
-    assert nb.nbformat == 4
-    yield 'nbformat: 4\n'
-    yield 'nbformat_minor: {}\n'.format(nb.nbformat_minor)
-    yield 'cells:\n'
+    if nb.nbformat != 4:
+        raise RuntimeError('Currently, only notebook version 4 is supported')
+    yield _line('', 'nbformat', '4')
+    yield _line('', 'nbformat_minor', nb.nbformat_minor)
+    yield _line('', 'cells')
     for cell in nb.cells:
-        # TODO: error if cell type is unknown
-        yield '- cell_type: {}\n'.format(cell.cell_type)
+        yield _line('- ', 'cell_type', cell.cell_type)
         if cell.cell_type == 'code' and cell.execution_count is not None:
-            yield '  execution_count: {}\n'.format(cell.execution_count)
-        yield '  source: |+2\n'
-        yield from _prefixed_block(cell.source, ' ' * 4)
+            yield _line('  ', 'execution_count', cell.execution_count)
+        yield from _text_block('  ', 'source', cell.source)
 
         # NB: everything else is optional!
 
@@ -32,61 +30,26 @@ def generate_yaml_lines(nb):
             pass
         elif cell.cell_type == 'code':
             if cell.outputs:
-                yield '  outputs:\n'
+                yield _line('  ', 'outputs')
                 for out in cell.outputs:
-                    yield '  - output_type: {}\n'.format(out.output_type)
-                    if out.output_type == 'stream':
-                        yield '    name: {}\n'.format(out.name)
-                        yield '    text: |+2\n'
-                        yield from _prefixed_block(
-                            out.text, ' ' * 6, add_newline=False)
-                    elif out.output_type in ('display_data', 'execute_result'):
-                        if (out.output_type == 'execute_result'
-                                and out.execution_count is not None):
-                            yield '    execution_count: {}\n'.format(
-                                out.execution_count)
-                        if out.data:
-                            yield '    data:\n'
-                            # TODO: sort MIME types?
-                            # TODO: alphabetically, by importance?
-                            # TODO: text-based formats first?
-                            for k, v in out.data.items():
-                                # TODO: how does nbformat differentiate?
-                                if k.endswith('json'):
-                                    yield '      {}:\n'.format(k)
-                                    yield from _prefixed_block(
-                                        _serialize_json(v), ' ' * 8)
-                                else:
-                                    yield '      {}: |+2\n'.format(k)
-                                    yield from _prefixed_block(v, ' ' * 8)
-                        # TODO: metadata
-                        pass
-                    elif out.output_type == 'error':
-                        yield '    ename: {}\n'.format(out.ename)
-                        yield '    evalue: |+2\n'
-                        yield from _prefixed_block(out.evalue, ' ' * 6)
-                        # NB: Traceback lines don't seem to be \n-terminated,
-                        #     but they may contain \n in the middle!
-                        yield '    traceback: |+2\n'
-                        tb = '\n'.join(out.traceback)
-                        yield from _prefixed_block(tb, ' ' * 6)
-                    else:
-                        assert False
+                    yield from _code_cell_output(out)
         elif cell.cell_type == 'raw':
             # TODO: attachments (since v4.1)
             pass
         else:
-            # TODO: unknown cell type
-            assert False
+            raise RuntimeError(
+                'Unknown cell type: {!r}'.format(cell.cell_type))
 
         if cell.metadata:
-            yield '  metadata:\n'
-            yield from _prefixed_block(_serialize_json(cell.metadata), ' ' * 4)
+            yield from _json_block('  ', 'metadata', cell.metadata)
         # TODO: warning/error if there are unknown attributes
-    yield 'metadata:\n'
     if nb.metadata:
-        yield from _prefixed_block(_serialize_json(nb.metadata), ' ' * 2)
+        yield from _json_block('', 'metadata', nb.metadata)
     # TODO: warning/error if there are unknown attributes
+
+
+def to_yaml(nb):
+    return ''.join(generate_yaml_lines(nb))
 
 
 def from_yaml(source):
@@ -251,7 +214,47 @@ def from_yaml(source):
     return nb
 
 
-def _prefixed_block(text, prefix, add_newline=True):
+def _line(prefix, key, value=None):
+    if value is None:
+        return '{}{}:\n'.format(prefix, key)
+    else:
+        return '{}{}: {}\n'.format(prefix, key, value)
+
+
+def _code_cell_output(out):
+    yield _line('  - ', 'output_type', out.output_type)
+    if out.output_type == 'stream':
+        yield _line(' ' * 4, 'name', out.name)
+        yield from _text_block(' ' * 4, 'text', out.text, add_newline=False)
+    elif out.output_type in ('display_data', 'execute_result'):
+        if (out.output_type == 'execute_result'
+                and out.execution_count is not None):
+            yield _line(' ' * 4, 'execution_count', out.execution_count)
+        # TODO: is "data" required? error message?
+        if out.data:
+            yield _line(' ' * 4, 'data')
+            # TODO: sort MIME types?
+            # TODO: alphabetically, by importance?
+            # TODO: text-based formats first?
+            for k, v in out.data.items():
+                # TODO: how does nbformat differentiate?
+                if k.endswith('json'):
+                    yield from _json_block(' ' * 6, k, v)
+                else:
+                    yield from _text_block(' ' * 6, k, v, add_newline=False)
+        # TODO: metadata
+    elif out.output_type == 'error':
+        yield _line(' ' * 4, 'ename', out.ename)
+        yield from _text_block(' ' * 4, 'evalue', out.evalue, add_newline=False)
+        # NB: Traceback lines don't seem to be \n-terminated,
+        #     but they may contain \n in the middle!
+        tb = '\n'.join(out.traceback)
+        yield from _text_block(' ' * 4, 'traceback', tb)
+    else:
+        raise RuntimeError('Unknown output type: {!r}'.format(out.output_type))
+
+
+def _prefixed_block(prefix, text, add_newline=True):
     for line in text.splitlines(keepends=True):
         yield prefix
         yield line
@@ -272,6 +275,16 @@ def _read_prefixed_block(lines, prefix):
     else:
         line = None
     return ''.join(block), (nr, line)
+
+
+def _text_block(prefix, key, value, add_newline=True):
+    yield '{}{}: |+2\n'.format(prefix, key)
+    yield from _prefixed_block(prefix + '  ', value, add_newline=add_newline)
+
+
+def _json_block(prefix, key, value):
+    yield '{}{}:\n'.format(prefix, key)
+    yield from _prefixed_block(prefix + '  ', _serialize_json(value))
 
 
 def _serialize_json(data):
