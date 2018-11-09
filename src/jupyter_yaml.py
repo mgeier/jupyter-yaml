@@ -241,6 +241,7 @@ def _code_cell_output(out):
             # TODO: text-based formats first?
             for k, v in out.data.items():
                 # TODO: how does nbformat differentiate?
+                #       uses regex: ^application/(.*\\+)?json$
                 if k.endswith('json'):
                     yield from _json_block(' ' * 6, k, v)
                 else:
