@@ -1,48 +1,48 @@
 import json as _json
+import re as _re
 
 import nbformat as _nbformat
 import notebook.services.contents.filemanager as _fm
 
 SUFFIX = '.jupyter'
 
+# RegEx from nbformat JSON schema:
+_RE_JSON = _re.compile('^application/(.*\\+)?json$')
 
 # TODO: somehow use JSON schema? nbformat.validator.get_validator(4, 2)
 
 # TODO: allow completely empty lines (or with fewer spaces than necessary)?
 
 
-def generate_yaml_lines(nb):
+def generate_nonyaml_lines(nb):
     if nb.nbformat != 4:
         raise RuntimeError('Currently, only notebook version 4 is supported')
     yield _line('', 'nbformat', '4')
     yield _line('', 'nbformat_minor', nb.nbformat_minor)
-    yield _line('', 'cells')
     for cell in nb.cells:
-        yield _line('- ', 'cell_type', cell.cell_type)
-        if cell.cell_type == 'code' and cell.execution_count is not None:
-            yield _line('  ', 'execution_count', cell.execution_count)
-        yield from _text_block('  ', 'source', cell.source)
+        cell_type = cell.cell_type
+        if cell_type == 'code' and cell.execution_count is not None:
+            yield _line('', 'code', cell.execution_count)
+        else:
+            yield _line('', cell_type)
+        yield from _prefixed_block('    ', cell.source)
         if cell.source == '' or cell.source.endswith('\n'):
             # NB: This additional \n has to be removed when reading
             yield '    \n'
 
         # NB: everything else is optional!
 
-        if cell.cell_type == 'markdown':
+        if cell_type == 'markdown':
             # TODO: attachments (since v4.1)
             pass
-        elif cell.cell_type == 'code':
-            if cell.outputs:
-                yield _line('  ', 'outputs')
-                for out in cell.outputs:
-                    yield from _code_cell_output(out)
-        elif cell.cell_type == 'raw':
+        elif cell_type == 'code':
+            for out in cell.outputs:
+                yield from _code_cell_output(out)
+        elif cell_type == 'raw':
             # TODO: attachments (since v4.1)
             pass
         else:
-            raise RuntimeError(
-                'Unknown cell type: {!r}'.format(cell.cell_type))
-
+            raise RuntimeError('Unknown cell type: {!r}'.format(cell_type))
         if cell.metadata:
             yield from _json_block('  ', 'metadata', cell.metadata)
         # TODO: warning/error if there are unknown attributes
@@ -51,17 +51,85 @@ def generate_yaml_lines(nb):
     # TODO: warning/error if there are unknown attributes
 
 
-def to_yaml(nb):
-    return ''.join(generate_yaml_lines(nb))
+def to_nonyaml(nb):
+    return ''.join(generate_nonyaml_lines(nb))
 
 
-def from_yaml(source):
+def from_nonyaml(source):
+    """
+
+    *source* must be either a `str` or an iterable of `str`.
+
+    Lines have to be terminated with ``'\\n'``
+    (a.k.a. "universal newlines" mode).
+
+    If *source* is a list, line terminators may be omitted.
+
+    """
+    nb = _nbformat.v4.new_notebook()
+    if isinstance(source, str):
+        source = source.splitlines()
+    lines = enumerate(source, start=1)
+    try:
+        i, line = next(lines)
+        if line.rstrip() != 'nbformat 4':
+            raise ParseError('First line must be exactly "nbformat 4"')
+        i, line = next(lines)
+        name, _, value = line.partition(' ')
+        if name != 'nbformat_minor':
+            raise ParseError('Second line must start with "nbformat_minor"')
+    except StopIteration:
+        raise ParseError('At least 2 lines are required')
+    try:
+        nb.nbformat_minor = int(value)
+    except ValueError:
+        raise ParseError(
+            'Invalid value for "nbformat_minor": {!r}'.format(value), 2)
+
+    blocks = []
+    try:
+        i, line = next(lines)
+        while True:
+            if line.startswith(' '):
+                assert False, 'unexpected space'
+            blocks.append([i, line.rstrip(), [], []])
+            i, line = next(lines)
+            while True:
+                if line.startswith(' ' * 4):
+                    line = line[4:-1 if line.endswith('\n') else None]
+                elif not line.strip():
+                    line = ''
+                else:
+                    break
+                blocks[-1][2].append(line)
+                i, line = next(lines)
+            if line.startswith(' ' * 3):
+                assert False, 'unexpected 3-space indentation'
+            while True:
+                if line.startswith(' ' * 2):
+                    line = line[2:-1 if line.endswith('\n') else None]
+                elif not line.strip():
+                    line = ''
+                else:
+                    break
+                blocks[-1][3].append(line)
+                i, line = next(lines)
+    except StopIteration:
+        pass
+
+    for i, name, source, data in blocks:
+        pass
+
+    # TODO: allow trailing empty lines
+
+
+def from_nonyaml_old(source):
     """
 
     *source* must be either a `str` or an iterable of `str`.
 
     In both cases, lines have to be terminated with ``'\\n'``
-    (a.k.a. "universal newlines").
+    (a.k.a. "universal newlines" mode).
 
     """
     if isinstance(source, str):
@@ -69,195 +137,166 @@ def from_yaml(source):
     lines = enumerate(source, start=1)
     nb = _nbformat.v4.new_notebook()
     try:
-        no_match, _, value = next(lines)[1].partition('nbformat: ')
+        no_match, _, value = next(lines)[1].partition('nbformat ')
         if no_match:
-            # TODO: custom exception class?
-            raise RuntimeError('First line must specify "nbformat"')
+            # TODO: custom exception class? with line number
+            raise ParseError('Expected "nbformat"', 1)
         nb.nbformat = int(value)
-        # TODO: check for errors
-        assert nb.nbformat == 4
-        no_match, _, value = next(lines)[1].partition('nbformat_minor: ')
+        # TODO: check for conversion errors
+        if nb.nbformat != 4:
+            raise ParseError('Only notebook version 4 is supported', 1)
+        no_match, _, value = next(lines)[1].partition('nbformat_minor ')
         if no_match:
-            raise RuntimeError('Second line must specify "nbformat_minor"')
-        # TODO: check for errors
+            raise ParseError('Expected "nbformat_minor"', 2)
         nb.nbformat_minor = int(value)
-        line = next(lines)
-        if line[1] != 'cells:\n':
-            raise RuntimeError('Third line must contain "cells:"')
+        # TODO: check for errors
     except StopIteration:
-        raise RuntimeError('Too few lines')
+        raise ParseError(
+            'At least 2 lines are required (nbformat/nbformat_minor)')
     try:
         line = next(lines)
         while True:
-            no_match, _, cell_type = line[1].partition('- cell_type: ')
-            if no_match:
-                break
-            assert _
-            line = next(lines)
-            if cell_type == 'markdown\n':
+            if line[1].startswith('markdown'):
+                tail = line[1][len('markdown'):].strip()
+                if tail:
+                    raise ParseError('No text allowed after "markdown"',
+                                     line[0])
                 cell = _nbformat.v4.new_markdown_cell()
-            elif cell_type == 'code\n':
+            elif line[1].startswith('code'):
                 cell = _nbformat.v4.new_code_cell()
-                prefix = '  execution_count: '
-                if line[1].startswith(prefix):
-                    # TODO: check for errors?
-                    cell.execution_count = int(line[1][len(prefix):])
-                    line = next(lines)
+                tail = line[1][len('code'):].strip()
+                if tail:
+                    cell.execution_count = int(tail)
+                    # TODO: check for conversion errors?
+            elif line[1].startswith('raw'):
+                cell = _nbformat.v4.new_raw_cell()
+                tail = line[1][len('raw'):].strip()
+                if tail:
+                    raise ParseError('No text allowed after "raw"', line[0])
             else:
-                raise RuntimeError(
-                    'Line {}: Unknown cell type: {!r}'.format(line[0] - 1, cell_type.rstrip('\n')))
-            if line[1] == '  source: |+2\n':
-                source, line = _read_prefixed_block(lines, ' ' * 4)
-                assert source.endswith('\n')
+                break
+
+            source, line = _read_prefixed_block(lines, ' ' * 4)
+            if source.endswith('\n'):
+                # NB: This is the normal case, trailing \n is removed
                 cell.source = source[:-1]
             else:
-                # TODO: ???
+                # NB: This is illegal, but we tolerate it
+                cell.source = source
+
+            nb.cells.append(cell)
+
+            # NB: Everything else is optional
+
+            if cell.cell_type == 'markdown':
+                # TODO: attachments
+                pass
+            elif cell.cell_type == 'code':
+                # NB: Outputs are added to cell.outputs:
+                line = _parse_outputs(line, lines, cell)
+            elif cell.cell_type == 'raw':
+                # TODO: attachments
+                pass
+            else:
                 assert False
 
-            # TODO: check cell_type again!
+            if None in line:
+                return nb  # EOF
 
-            if line[1] == '  outputs:\n':
-                cell.outputs = []
-                line = next(lines)
-                while True:
-                    out = {}
-                    prefix = '  - output_type: '
-                    if line[1].startswith(prefix):
-                        assert line[1].endswith('\n')
-                        out['output_type'] = line[1][len(prefix):-1]
-                    else:
-                        break
-                    cell.outputs.append(out)
-                    line = next(lines)
-
-                    # TODO: different things depending on output_type
-
-                    if out['output_type'] == 'stream':
-                        # TODO name and text are required!
-                        prefix = '    name: '
-                        if line[1].startswith(prefix):
-                            assert line[1].endswith('\n')
-                            out['name'] = line[1][len(prefix):-1]
-                        line = next(lines)
-                        if line[1] == '    text: |+2\n':
-                            text, line = _read_prefixed_block(lines, ' ' * 6)
-                            # TODO: no \n has to be removed?
-                            out['text'] = text
-                    elif out['output_type'] in ('display_data',
-                                                'execute_result'):
-                        if out['output_type'] == 'execute_result':
-                            prefix = '    execution_count: '
-                            if line[1].startswith(prefix):
-                                assert line[1].endswith('\n')
-                                out['execution_count'] = int(line[1][len(prefix):-1])
-                                line = next(lines)
-                        if line[1] == '    data:\n':
-                            out['data'] = {}
-                            line = next(lines)
-                            while True:
-                                if line[1].startswith(' ' * 6):
-                                    suffix = ': |+2\n'
-                                    if not line[1].endswith(suffix):
-                                        suffix = ':\n'
-                                        if not line[1].endswith(suffix):
-                                            raise RuntimeError('TODO')
-                                    mime_type = line[1][6:-len(suffix)]
-                                    # TODO: is bytes allowed?
-                                    data, line = _read_prefixed_block(
-                                        lines, ' ' * 8)
-                                    # TODO: remove trailing \n?
-
-                                    # TODO: better check?
-                                    if suffix == ':\n':
-                                        data = _json.loads(data)
-                                    out['data'][mime_type] = data
-                                else:
-                                    break
-                        else:
-                            break
-
-                        # TODO: read metadata
-
-                    elif out['output_type'] == 'error':
-                        # TODO: all fields are required
-                        prefix = '    ename: '
-                        if line[1].startswith(prefix):
-                            assert line[1].endswith('\n')
-                            out['ename'] = line[1][len(prefix):-1]
-                            line = next(lines)
-                        if line[1] == '    evalue: |+2\n':
-                            value, line = _read_prefixed_block(lines, ' ' * 6)
-                            # TODO: last \n has to be removed?
-                            out['evalue'] = value
-                        if line[1] == '    traceback: |+2\n':
-                            tb, line = _read_prefixed_block(lines, ' ' * 6)
-                            out['traceback'] = tb.splitlines()
-            if line[1] is None:
-                break  # EOF
-            if line[1] == '  metadata:\n':
-                block, line = _read_prefixed_block(lines, '    ')
+            prefix, _, tail = line[1].partition('metadata')
+            if prefix == '  ':
+                if tail.strip():
+                    raise ParseError('No text allowed after "metadata"',
+                                     line[0])
+                block, line = _read_prefixed_block(lines, ' ' * 4)
                 cell.metadata = _json.loads(block)
-            nb.cells.append(cell)
-            if line[1] is None:
-                break  # EOF
-    except StopIteration:
-        line = None, None  # No cells, no metadata
 
-    if line[1] == 'metadata:\n':
+            if None in line:
+                return nb  # EOF
+    except StopIteration:
+        return nb  # EOF
+
+    prefix, _, tail = line[1].partition('metadata')
+    if prefix == '' and not tail.strip():
         block, line = _read_prefixed_block(lines, '  ')
         nb.metadata = _json.loads(block)
 
     # TODO: check for unknown keys?
 
-    assert line[1] is None, repr(line)
-
-    # TODO: generator must be exhausted
-
-    # TODO: check validity?
+    if None not in line:
+        raise ParseError('Unexpected file content', line[0])
     return nb
+
+
+class ParseError(Exception):
+
+    def __str__(self):
+        if len(self.args) == 2:
+            return 'Line {0[1]}: {0[0]}'.format(self.args)
+        return Exception.__str__(self)
 
 
 def _line(prefix, key, value=None):
     if value is None:
-        return '{}{}:\n'.format(prefix, key)
+        return '{}{}\n'.format(prefix, key)
     else:
-        return '{}{}: {}\n'.format(prefix, key, value)
+        return '{}{} {}\n'.format(prefix, key, value)
 
 
 def _code_cell_output(out):
-    yield _line('  - ', 'output_type', out.output_type)
     if out.output_type == 'stream':
-        yield _line(' ' * 4, 'name', out.name)
-        yield from _text_block(' ' * 4, 'text', out.text)
+        # TODO: can "name" be empty?
+        yield _line('  ', 'stream', out.name)
+        yield from _prefixed_block(' ' * 4, out.text)
     elif out.output_type in ('display_data', 'execute_result'):
-        if (out.output_type == 'execute_result'
-                and out.execution_count is not None):
-            yield _line(' ' * 4, 'execution_count', out.execution_count)
+        yield _line('  ', out.output_type)
+        # TODO: check if out.execution_count matches cell.execution_count?
         # TODO: is "data" required? error message?
         if out.data:
-            yield _line(' ' * 4, 'data')
             # TODO: sort MIME types?
             # TODO: alphabetically, by importance?
             # TODO: text-based formats first?
             for k, v in out.data.items():
-                # TODO: how does nbformat differentiate?
-                #       uses regex: ^application/(.*\\+)?json$
-                if k.endswith('json'):
-                    yield from _json_block(' ' * 6, k, v)
+                if _RE_JSON.match(k):
+                    yield from _json_block('  ', '- ' + k, v)
                 else:
-                    yield from _text_block(' ' * 6, k, v)
+                    yield from _text_block('  ', '- ' + k, v)
         # TODO: metadata
     elif out.output_type == 'error':
-        yield _line(' ' * 4, 'ename', out.ename)
-        yield from _text_block(' ' * 4, 'evalue', out.evalue)
+        yield _line('  ', out.output_type)
+        yield _line('  - ', 'ename')
+        yield from _prefixed_block(' ' * 4, out.ename)
+        yield _line('  - ', 'evalue')
+        yield from _prefixed_block(' ' * 4, out.evalue)
+        yield _line('  - ', 'traceback')
         # NB: Traceback lines don't seem to be \n-terminated,
-        #     but they may contain \n in the middle!
-        tb = '\n'.join(out.traceback)
-        yield from _text_block(' ' * 4, 'traceback', tb)
-        # TODO: remove this, just to be safe:
-        assert not tb.endswith('\n')
+        #     but they may contain \n characters in the middle!
+        separator = ''
+        for frame in out.traceback:
+            if separator:
+                yield separator
+            else:
+                separator = '   ~\n'
+            for line in frame.splitlines():
+                yield '    ' + line + '\n'
     else:
         raise RuntimeError('Unknown output type: {!r}'.format(out.output_type))
+
+
+def _read_traceback(lines):
+    traceback = []
+    while True:
+        frame, line = _read_prefixed_block(lines, ' ' * 4)
+        if frame.endswith('\n'):
+            # This is the normal case
+            frame = frame[:-1]
+        traceback.append(frame)
+        no_match, _, tail = line[1].partition('   ~')
+        if no_match:
+            break
+        if tail.strip():
+            raise ParseError('No text allowed after "~"', line[0])
+    return traceback, line
 
 
 def _prefixed_block(prefix, text):
@@ -274,17 +313,17 @@ def _read_prefixed_block(lines, prefix):
         assert _ == prefix
         block.append(block_line)
     else:
-        line = None
+        nr, line = None, None
     return ''.join(block), (nr, line)
 
 
 def _text_block(prefix, key, value):
-    yield '{}{}: |+2\n'.format(prefix, key)
+    yield '{}{}\n'.format(prefix, key)
     yield from _prefixed_block(prefix + '  ', value)
 
 
 def _json_block(prefix, key, value):
-    yield '{}{}:\n'.format(prefix, key)
+    yield '{}{}\n'.format(prefix, key)
     yield from _prefixed_block(prefix + '  ', _serialize_json(value))
 
 
@@ -292,6 +331,65 @@ def _serialize_json(data):
     # Options should be the same as in nbformat!
     # TODO: allow bytes? see BytesEncoder?
     return _json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
+
+
+def _parse_outputs(line, lines, cell):
+    # Outputs are added to cell.outputs, StopIteration may happen any time
+    cell.outputs = []
+    while True:
+        if not line[1].startswith('  '):
+            break
+
+        out = {}
+        cell.outputs.append(out)
+
+        output_type = line[1][2:].rstrip()
+        out['output_type'] = output_type
+        if output_type.startswith('stream'):
+            if output_type[6] != ' ':
+                raise ParseError('Expected "stream stdout" or "stream stderr"',
+                                 line[0])
+            out['output_type'] = 'stream'
+            out['name'] = output_type[7:].lstrip(' ')
+            text, line = _read_prefixed_block(lines, ' ' * 4)
+            # TODO: no \n has to be removed?
+            out['text'] = text
+        elif output_type in ('display_data', 'execute_result'):
+            if output_type == 'execute_result':
+                out['execution_count'] = cell.execution_count
+            out['data'] = {}
+            line = next(lines)
+            while True:
+                if not line[1].startswith('  - '):
+                    break
+                mime_type = line[1][4:].rstrip()
+                if mime_type == 'metadata':
+                    # TODO: read metadata
+                    raise ParseError('TODO: implement output "metadata"',
+                                     line[0])
+                data, line = _read_prefixed_block(lines, ' ' * 4)
+
+                # TODO: remove trailing \n?
+
+                if _RE_JSON.match(mime_type):
+                    data = _json.loads(data)
+                out['data'][mime_type] = data
+        elif output_type == 'error':
+            # NB: All fields are required
+            line = next(lines)
+            if line[1].rstrip() != '  - ename':
+                raise ParseError('Expected "  - ename"', line[0])
+            out['ename'], line = _read_prefixed_block(lines, ' ' * 4)
+            if line[1].rstrip() != '  - evalue':
+                raise ParseError('Expected "  - evalue"', line[0])
+            out['evalue'], line = _read_prefixed_block(lines, ' ' * 4)
+            if line[1].rstrip() != '  - traceback':
+                raise ParseError('Expected "  - traceback"', line[0])
+            out['traceback'], line = _read_traceback(lines)
+        else:
+            raise ParseError('Unknown output type: {!r}'.format(output_type),
+                             line[0])
+    return line
 
 
 class FileContentsManager(_fm.FileContentsManager):
@@ -308,7 +406,7 @@ class FileContentsManager(_fm.FileContentsManager):
         with self.open(os_path, 'r', encoding='utf-8', newline=None) as f:
             try:
                 assert as_version == 4
-                return from_yaml(f)
+                return from_nonyaml(f)
             except Exception as e:
                 raise _fm.web.HTTPError(400, str(e))
 
@@ -320,4 +418,4 @@ class FileContentsManager(_fm.FileContentsManager):
         with self.atomic_writing(os_path, text=True,
                                  newline=None,  # "universal newlines"
                                  encoding='utf-8') as f:
-            f.writelines(generate_yaml_lines(nb))
+            f.writelines(generate_nonyaml_lines(nb))
