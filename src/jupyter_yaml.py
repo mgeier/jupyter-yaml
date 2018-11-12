@@ -70,9 +70,10 @@ def from_nonyaml(source):
         source = source.splitlines()
     parser = _Parser()
     function = parser.parse
-    for line in enumerate(source, start=1):
-        # TODO: remove trailing \n
-        function = function(*line)
+    for i, line in enumerate(source, start=1):
+        if line.endswith('\n'):
+            line = line[:-1]
+        function = function(i, line)
     return parser.finish()
 
 
@@ -82,6 +83,9 @@ class _Parser:
         self.nb = _nbformat.v4.new_notebook()
         self.nb.nbformat_minor = None
         self.current_source_lines = []
+        self.current_output = None
+        self.current_output_stream_lines = []
+        self.current_output_data_lines = []
         self.current_cell_metadata = []
 
     def _parse_nbformat(self, i, line):
@@ -142,12 +146,12 @@ class _Parser:
     def _parse_indented_block(self, indent, target, next_function):
 
         def parse(i, line):
-            if line.startswith(' ' * indent):
-                target.append(line[indent:])
-                return self._parse_indented_block(indent, target, next_function)
-            if line.startswith(' ' * (indent - 1)):
-                raise ParseError('Invalid indentation', i)
-            return next_function(i, line)
+            if not line.startswith(' ' * indent):
+                if line.startswith(' ' * (indent - 1)):
+                    raise ParseError('Invalid indentation', i)
+                return next_function(i, line)
+            target.append(line[indent:])
+            return self._parse_indented_block(indent, target, next_function)
 
         return parse
 
@@ -159,7 +163,7 @@ class _Parser:
         if cell_type == 'markdown':
             return self._parse_markdown_data(i, line)
         if cell_type == 'code':
-            return self._parse_output(i, line)
+            return self._parse_outputs(i, line)
         # TODO: raw cells (attachments?)
         raise RuntimeError('cell data')
 
@@ -171,22 +175,55 @@ class _Parser:
 
         return self._parse_cell_metadata(i, line)
 
-    def _parse_output(self, i, line):
-        assert line.startswith('  ')
+    def _parse_outputs(self, i, line):
+        if not line.startswith('  '):
+            return self._parse_cell(i, line)
         if line.startswith(' ' * 3):
             raise ParseError('Invalid indentation', i)
-        # TODO: create output
 
-        # TODO: try all output types, if no match: metadata
+        self._finish_output()
 
+        output_type = line[2:].rstrip()
+        if output_type.startswith('stream'):
+            if output_type[6] != ' ':
+                raise ParseError('Expected "stream stdout" or "stream stderr"',
+                                 i)
+            self.current_output = _nbformat.v4.new_output('stream')
+            # NB: "name" is required!
+            # TODO: check if name is valid?
+            self.current_output.name = output_type[7:].lstrip(' ')
+            return self._parse_indented_block(
+                4, self.current_output_stream_lines, self._parse_outputs)
 
-        #line = line[2:].rstrip()
-        #if line == ''
-        #if line == 'metadata':
-        #    return self._parse_cell_metadata
-        #raise ParseError('TODO: error message', i)
+        # TODO: if display_data, execute_result, error
+        elif output_type in ('display_data', 'execute_result'):
+            self.current_output = _nbformat.v4.new_output(output_type)
+            if output_type == 'execute_result':
+                assert self.nb.cells
+                assert self.nb.cells[-1].cell_type == 'code'
+                self.current_output.execution_count = \
+                    self.nb.cells[-1].execution_count
 
-        return self._parse_cell_metadata(i, line)
+            return self._parse_output_data
+
+        elif output_type.startswith('metadata'):
+            return self._parse_cell_metadata(i, line)
+        else:
+            raise ParseError('Expected cell output or "metadata"', i)
+
+    def _parse_output_data(self, i, line):
+        if not line.startswith('  '):
+            return self._parse_cell(i, line)
+        if not line.startswith('  - '):
+            return self._parse_outputs(i, line)
+        self._finish_output_data()
+        mime_type = line[4:].rstrip()
+        if mime_type == 'metadata':
+            # TODO: parse indented, afterwards _parse_outputs
+            assert False
+        self.current_mime_type = mime_type
+        return self._parse_indented_block(4, self.current_output_data_lines,
+                                          self._parse_output_data)
 
     def _parse_cell_metadata(self, i, line):
         assert line.startswith('  ')
@@ -212,11 +249,45 @@ class _Parser:
         # TODO: validate notebook?
         return self.nb
 
+    def _finish_output_data(self):
+        if self.current_output_data_lines:
+            assert self.current_output
+            assert self.current_output.output_type in ('display_data',
+                                                       'execute_result')
+            assert self.current_mime_type
+
+            data = '\n'.join(self.current_output_data_lines)
+            mime_type = self.current_mime_type
+            if _RE_JSON.match(mime_type):
+                self.current_output.data[mime_type] = _json.loads(data)
+            else:
+                self.current_output.data[mime_type] = data
+            self.current_output_data_lines = []
+
+        # TODO: store output metadata
+
+    def _finish_output(self):
+        if self.current_output_stream_lines:
+            assert self.current_output
+            assert self.current_output.output_type == 'stream'
+            self.current_output.text = '\n'.join(
+                self.current_output_stream_lines)
+            self.current_output_stream_lines = []
+
+        self._finish_output_data()
+
+        if self.current_output:
+            assert self.nb.cells
+            self.nb.cells[-1].outputs.append(self.current_output)
+            self.current_output = None
+
     def _finish_cell(self):
         if self.current_source_lines:
             assert self.nb.cells
             self.nb.cells[-1].source = '\n'.join(self.current_source_lines)
             self.current_source_lines = []
+
+        self._finish_output()
 
         if self.current_cell_metadata:
             assert self.nb.cells
