@@ -14,7 +14,7 @@ _RE_JSON = _re.compile('^application/(.*\\+)?json$')
 # TODO: allow completely empty lines (or with fewer spaces than necessary)?
 
 
-def generate_nonyaml_lines(nb):
+def generate_lines(nb):
     if nb.nbformat != 4:
         raise RuntimeError('Currently, only notebook version 4 is supported')
     yield _line('', 'nbformat', '4')
@@ -51,11 +51,11 @@ def generate_nonyaml_lines(nb):
     # TODO: warning/error if there are unknown attributes
 
 
-def to_nonyaml(nb):
-    return ''.join(generate_nonyaml_lines(nb))
+def serialize(nb):
+    return ''.join(generate_lines(nb))
 
 
-def from_nonyaml(source):
+def deserialize(source):
     """
 
     *source* must be either a `str` or an iterable of `str`.
@@ -80,8 +80,10 @@ def from_nonyaml(source):
             raise e
         except Exception as e:
             raise ParseError(type(e).__name__ + ': ' + str(e), i)
-    # TODO: function(None)
-    return parser.finish()
+    function = function(None)
+    assert function is None
+    # TODO: is there more stuff left to do?
+    return parse.nb
 
 
 class _Parser:
@@ -97,8 +99,8 @@ class _Parser:
 
     def _parse_nbformat(self, line):
         if line is None:
-            # TODO: error
-            pass
+            # TODO
+            raise NotImplementedError
         if line.rstrip() != 'nbformat 4':
             raise ParseError('First line must be exactly "nbformat 4"')
         self.nb.nbformat = 4
@@ -108,8 +110,8 @@ class _Parser:
 
     def _parse_nbformat_minor(self, line):
         if line is None:
-            # TODO: error
-            pass
+            # TODO
+            raise NotImplementedError
         name, _, value = line.partition(' ')
         if name != 'nbformat_minor':
             raise ParseError('Second line must start with "nbformat_minor" '
@@ -124,9 +126,9 @@ class _Parser:
     def _parse_cell(self, line):
         if line is None:
             # TODO
-            pass
+            raise NotImplementedError
         if line.startswith(' '):
-            raise ParseError('Invalid indentation')
+            raise ParseError('Expected unindented text')
         self._finish_cell()
         if line.startswith('markdown'):
             if line[len('markdown'):].strip():
@@ -162,7 +164,7 @@ class _Parser:
         def parse(line):
             if line is None:
                 # TODO
-                pass
+                raise NotImplementedError
             if not line.startswith(' ' * indent):
                 if line.startswith(' ' * (indent - 1)):
                     raise ParseError('Invalid indentation')
@@ -175,7 +177,7 @@ class _Parser:
     def _parse_after_source(self, line):
         if line is None:
             # TODO
-            pass
+            raise NotImplementedError
         if not line.startswith('  '):
             return self._parse_cell(line)
         assert self.nb.cells
@@ -190,7 +192,7 @@ class _Parser:
     def _parse_markdown_data(self, line):
         if line is None:
             # TODO
-            pass
+            raise NotImplementedError
         assert line.startswith('  ')
         # TODO: generalize (attachments?)
 
@@ -201,7 +203,7 @@ class _Parser:
     def _parse_outputs(self, line):
         if line is None:
             # TODO
-            pass
+            raise NotImplementedError
         if not line.startswith('  '):
             return self._parse_cell(line)
         if line.startswith(' ' * 3):
@@ -239,7 +241,7 @@ class _Parser:
     def _parse_output_data(self, line):
         if line is None:
             # TODO
-            pass
+            raise NotImplementedError
         if not line.startswith('  '):
             return self._parse_cell(line)
         if not line.startswith('  - '):
@@ -256,7 +258,7 @@ class _Parser:
     def _parse_cell_metadata(self, line):
         if line is None:
             # TODO
-            pass
+            raise NotImplementedError
         assert line.startswith('  ')
         line = line[2:]
         prefix, _, tail = line.partition('metadata')
@@ -270,15 +272,15 @@ class _Parser:
     def _parse_notebook_metadata(self, line):
         return NotImplemented
 
-    def finish(self):
-        if self.nb.nbformat_minor is None:
-            raise ParseError('The first two lines must specify "nbformat" '
-                             'and "nbformat_minor"')
-        self._finish_cell()
-        # TODO: finish notebook metadata?
+    #def finish(self):
+    #    if self.nb.nbformat_minor is None:
+    #        raise ParseError('The first two lines must specify "nbformat" '
+    #                         'and "nbformat_minor"')
+    #    self._finish_cell()
+    #    # TODO: finish notebook metadata?
 
-        # TODO: validate notebook?
-        return self.nb
+    #    # TODO: validate notebook?
+    #    return self.nb
 
     def _finish_output_data(self):
         if self.current_output_data_lines:
@@ -545,7 +547,7 @@ class FileContentsManager(_fm.FileContentsManager):
         with self.open(os_path, 'r', encoding='utf-8', newline=None) as f:
             try:
                 assert as_version == 4
-                return from_nonyaml(f)
+                return deserialize(f)
             except Exception as e:
                 raise _fm.web.HTTPError(400, str(e))
 
@@ -557,4 +559,4 @@ class FileContentsManager(_fm.FileContentsManager):
         with self.atomic_writing(os_path, text=True,
                                  newline=None,  # "universal newlines"
                                  encoding='utf-8') as f:
-            f.writelines(generate_nonyaml_lines(nb))
+            f.writelines(generate_lines(nb))
