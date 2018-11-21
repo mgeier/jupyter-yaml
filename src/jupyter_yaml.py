@@ -44,10 +44,10 @@ def generate_lines(nb):
         else:
             raise RuntimeError('Unknown cell type: {!r}'.format(cell_type))
         if cell.metadata:
-            yield from _json_block('  ', 'metadata', cell.metadata)
+            yield from _json_block('  metadata', cell.metadata)
         # TODO: warning/error if there are unknown attributes
     if nb.metadata:
-        yield from _json_block('', 'metadata', nb.metadata)
+        yield from _json_block('metadata', nb.metadata)
     # TODO: warning/error if there are unknown attributes
 
 
@@ -66,307 +66,252 @@ def deserialize(source):
     If *source* is a list, line terminators may be omitted.
 
     """
-    if isinstance(source, str):
-        source = source.splitlines()
-    parser = _Parser()
-    function = parser.parse
-    for i, line in enumerate(source, start=1):
-        if line.endswith('\n'):
-            line = line[:-1]
-        try:
-            function = function(line)
-        except ParseError as e:
-            e.args += i,
-            raise e
-        except Exception as e:
-            raise ParseError(type(e).__name__ + ': ' + str(e), i)
-    function = function(None)
-    assert function is None
-    # TODO: is there more stuff left to do?
-    return parse.nb
+    return _Parser().parse(source)
 
 
 class _Parser:
 
-    def __init__(self):
-        self.nb = _nbformat.v4.new_notebook()
-        self.nb.nbformat_minor = None
-        self.current_source_lines = []
-        self.current_output = None
-        self.current_output_stream_lines = []
-        self.current_output_data_lines = []
-        self.current_cell_metadata = []
-
-    def _parse_nbformat(self, line):
-        if line is None:
-            # TODO
-            raise NotImplementedError
-        if line.rstrip() != 'nbformat 4':
-            raise ParseError('First line must be exactly "nbformat 4"')
-        self.nb.nbformat = 4
-        return self._parse_nbformat_minor
-
-    parse = _parse_nbformat
-
-    def _parse_nbformat_minor(self, line):
-        if line is None:
-            # TODO
-            raise NotImplementedError
-        name, _, value = line.partition(' ')
-        if name != 'nbformat_minor':
-            raise ParseError('Second line must start with "nbformat_minor" '
-                             '(followed by a space and a number)')
+    def parse(self, source):
+        if isinstance(source, str):
+            source = source.splitlines()
+        gen = self.line_consumer()
+        gen.send(None)
+        i = 0
         try:
-            self.nb.nbformat_minor = int(value)
-        except ValueError:
-            raise ParseError(
-                'Invalid value for "nbformat_minor": {!r}'.format(value))
-        return self._parse_cell
-
-    def _parse_cell(self, line):
-        if line is None:
-            # TODO
-            raise NotImplementedError
-        if line.startswith(' '):
-            raise ParseError('Expected unindented text')
-        self._finish_cell()
-        if line.startswith('markdown'):
-            if line[len('markdown'):].strip():
-                raise ParseError('No text allowed after "markdown"')
-            cell = _nbformat.v4.new_markdown_cell()
-            # TODO: attachments (since v4.1)
-        elif line.startswith('code'):
-            cell = _nbformat.v4.new_code_cell()
-            tail = line[len('code'):].strip()
-            if tail:
-                try:
-                    cell.execution_count = int(tail)
-                except ValueError:
-                    raise ParseError(
-                        'Invalid execution count: {!r}'.format(tail))
-        elif line.startswith('raw'):
-            if line[len('raw'):].strip():
-                raise ParseError('No text allowed after "raw"')
-            cell = _nbformat.v4.new_raw_cell()
-            # TODO: attachments (since v4.1)
-        elif line.startswith('metadata'):
-            if line[len('metadata'):].strip():
-                raise ParseError('No text allowed after "metadata"')
-            return self._parse_notebook_metadata
-        else:
-            raise ParseError('Expected cell type or "metadata"')
-        self.nb.cells.append(cell)
-        return self._parse_indented_block(4, self.current_source_lines,
-                                          self._parse_after_source)
-
-    def _parse_indented_block(self, indent, target, next_function):
-
-        def parse(line):
-            if line is None:
-                # TODO
-                raise NotImplementedError
-            if not line.startswith(' ' * indent):
-                if line.startswith(' ' * (indent - 1)):
-                    raise ParseError('Invalid indentation')
-                return next_function(line)
-            target.append(line[indent:])
-            return self._parse_indented_block(indent, target, next_function)
-
-        return parse
-
-    def _parse_after_source(self, line):
-        if line is None:
-            # TODO
-            raise NotImplementedError
-        if not line.startswith('  '):
-            return self._parse_cell(line)
-        assert self.nb.cells
-        cell_type = self.nb.cells[-1]['cell_type']
-        if cell_type == 'markdown':
-            return self._parse_markdown_data(line)
-        if cell_type == 'code':
-            return self._parse_outputs(line)
-        # TODO: raw cells (attachments?)
-        raise RuntimeError('cell data')
-
-    def _parse_markdown_data(self, line):
-        if line is None:
-            # TODO
-            raise NotImplementedError
-        assert line.startswith('  ')
-        # TODO: generalize (attachments?)
-
-        # TODO: check for data (attachments)
-
-        return self._parse_cell_metadata(line)
-
-    def _parse_outputs(self, line):
-        if line is None:
-            # TODO
-            raise NotImplementedError
-        if not line.startswith('  '):
-            return self._parse_cell(line)
-        if line.startswith(' ' * 3):
-            raise ParseError('Invalid indentation')
-
-        self._finish_output()
-
-        output_type = line[2:].rstrip()
-        if output_type.startswith('stream'):
-            if output_type[6] != ' ':
-                raise ParseError('Expected "stream stdout" or "stream stderr"')
-            self.current_output = _nbformat.v4.new_output('stream')
-            # NB: "name" is required!
-            # TODO: check if name is valid?
-            self.current_output.name = output_type[7:].lstrip(' ')
-            return self._parse_indented_block(
-                4, self.current_output_stream_lines, self._parse_outputs)
-
-        # TODO: if display_data, execute_result, error
-        elif output_type in ('display_data', 'execute_result'):
-            self.current_output = _nbformat.v4.new_output(output_type)
-            if output_type == 'execute_result':
-                assert self.nb.cells
-                assert self.nb.cells[-1].cell_type == 'code'
-                self.current_output.execution_count = \
-                    self.nb.cells[-1].execution_count
-
-            return self._parse_output_data
-
-        elif output_type.startswith('metadata'):
-            return self._parse_cell_metadata(line)
-        else:
-            raise ParseError('Expected cell output or "metadata"')
-
-    def _parse_output_data(self, line):
-        if line is None:
-            # TODO
-            raise NotImplementedError
-        if not line.startswith('  '):
-            return self._parse_cell(line)
-        if not line.startswith('  - '):
-            return self._parse_outputs(line)
-        self._finish_output_data()
-        mime_type = line[4:].rstrip()
-        if mime_type == 'metadata':
-            # TODO: parse indented, afterwards _parse_outputs
+            for i, line in enumerate(source, start=1):
+                if line.endswith('\n'):
+                    line = line[:-1]
+                gen.send(line)
+            i += 1
+            gen.send(None)
+        except StopIteration:
             assert False
-        self.current_mime_type = mime_type
-        return self._parse_indented_block(4, self.current_output_data_lines,
-                                          self._parse_output_data)
+            raise ParseError('Too much source text?', i + 1)
+        except ParseError as e:
+            if len(e.args) == 1:
+                e.args += i,
+            elif len(e.args) == 2:
+                e.args = e.args[0], i - e.args[1]
+            raise e
+        except Exception as e:
+            raise ParseError(type(e).__name__ + ': ' + str(e), i)
+        gen.close()
+        return self.nb
 
-    def _parse_cell_metadata(self, line):
-        if line is None:
-            # TODO
-            raise NotImplementedError
-        assert line.startswith('  ')
-        line = line[2:]
-        prefix, _, tail = line.partition('metadata')
-        if prefix == '':
-            if tail.strip():
-                raise ParseError('No text allowed after "metadata"')
-            return self._parse_indented_block(4, self.current_cell_metadata,
-                                              self._parse_cell)
-        raise ParseError('TODO: error message')
+    def line_consumer(self):
+        self.nb = _nbformat.v4.new_notebook()
+        yield from self.parse_nbformat()
+        yield from self.parse_nbformat_minor()
+        yield from self.parse_the_rest()
+        assert False, 'EOF'
 
-    def _parse_notebook_metadata(self, line):
-        return NotImplemented
+    def parse_nbformat(self):
+        line = yield
+        nr = _check_word_plus_integer(line, 'nbformat')
+        if nr != 4:
+            raise ParseError('Only v4 notebooks are supported')
+        self.nb.nbformat = nr
 
-    #def finish(self):
-    #    if self.nb.nbformat_minor is None:
-    #        raise ParseError('The first two lines must specify "nbformat" '
-    #                         'and "nbformat_minor"')
-    #    self._finish_cell()
-    #    # TODO: finish notebook metadata?
+    def parse_nbformat_minor(self):
+        line = yield
+        self.nb.nbformat_minor = _check_word_plus_integer(
+            line, 'nbformat_minor')
 
-    #    # TODO: validate notebook?
-    #    return self.nb
-
-    def _finish_output_data(self):
-        if self.current_output_data_lines:
-            assert self.current_output
-            assert self.current_output.output_type in ('display_data',
-                                                       'execute_result')
-            assert self.current_mime_type
-
-            data = '\n'.join(self.current_output_data_lines)
-            mime_type = self.current_mime_type
-            if _RE_JSON.match(mime_type):
-                self.current_output.data[mime_type] = _json.loads(data)
-            else:
-                self.current_output.data[mime_type] = data
-            self.current_output_data_lines = []
-
-        # TODO: store output metadata
-
-    def _finish_output(self):
-        if self.current_output_stream_lines:
-            assert self.current_output
-            assert self.current_output.output_type == 'stream'
-            self.current_output.text = '\n'.join(
-                self.current_output_stream_lines)
-            self.current_output_stream_lines = []
-
-        self._finish_output_data()
-
-        if self.current_output:
-            assert self.nb.cells
-            self.nb.cells[-1].outputs.append(self.current_output)
-            self.current_output = None
-
-    def _finish_cell(self):
-        if self.current_source_lines:
-            assert self.nb.cells
-            self.nb.cells[-1].source = '\n'.join(self.current_source_lines)
-            self.current_source_lines = []
-
-        self._finish_output()
-
-        if self.current_cell_metadata:
-            assert self.nb.cells
-            self.nb.cells[-1].metadata = _json.loads(
-                '\n'.join(self.current_cell_metadata))
-            self.current_cell_metadata = []
-
-        # TODO: finish other data
-
-
-def from_nonyaml_old(source):
-    """
-
-    *source* must be either a `str` or an iterable of `str`.
-
-    In both cases, lines have to be terminated with ``'\\n'``
-    (a.k.a. "universal newlines" mode).
-
-    """
-    try:
-        line = next(lines)
+    def parse_the_rest(self):
+        line = yield
         while True:
+            # TODO: finish cell?
+            if line is None:
+                # TODO: finish cell?
+                yield
+                assert False, 'EOF'
+            # TODO: finish cell?
+            if _check_word(line, 'markdown'):
+                cell = _nbformat.v4.new_markdown_cell()
+                # TODO: attachments (since v4.1)
+            elif line.startswith('code'):
+                cell = _nbformat.v4.new_code_cell()
+                if line not in ('code', 'code '):
+                    cell.execution_count = _check_word_plus_integer(
+                        line, 'code')
+            elif _check_word(line, 'raw'):
+                cell = _nbformat.v4.new_raw_cell()
+                # TODO: attachments (since v4.1)
+            elif _check_word(line, 'metadata'):
+                self.nb.metadata = yield from self.parse_notebook_metadata()
+                yield
+                assert False, 'EOF'
+            else:
+                raise ParseError("Expected (unindented) cell type or "
+                                 "'metadata', got {!r}".format(line))
 
-            prefix, _, tail = line[1].partition('metadata')
-            if prefix == '  ':
-                if tail.strip():
-                    raise ParseError('No text allowed after "metadata"',
-                                     line[0])
-                block, line = _read_prefixed_block(lines, ' ' * 4)
-                cell.metadata = _json.loads(block)
+            self.nb.cells.append(cell)
+            cell.source, line = yield from self.parse_indented_lines()
 
-            if None in line:
-                return nb  # EOF
-    except StopIteration:
-        return nb  # EOF
+            # TODO: check if line is None?
 
-    prefix, _, tail = line[1].partition('metadata')
-    if prefix == '' and not tail.strip():
-        block, line = _read_prefixed_block(lines, '  ')
-        nb.metadata = _json.loads(block)
+            cell_type = cell['cell_type']
+            if cell_type in ('markdown', 'raw'):
+                # TODO: parse attachments
+                #yield from self.parse_???(line)
+                pass
+            elif cell_type == 'code':
+                cell.outputs, line = yield from self.parse_code_outputs(line)
 
-    # TODO: check for unknown keys?
+            if (line is not None and line.startswith('  ')
+                    and _check_word('metadata', line[2:])):
+                metadata, line = yield from self.parse_cell_metadata()
+                cell.metadata = metadata
+        assert False, 'EOF'
 
-    if None not in line:
-        raise ParseError('Unexpected file content', line[0])
-    return nb
+    def parse_code_outputs(self, line):
+        outputs = []
+        while True:
+            current_output = None
+            if line is None:
+                break
+            if not line.startswith('  '):
+                break
+            if line.startswith(' ' * 3):
+                raise ParseError('Invalid indentation')
+
+            # TODO: finish output?
+
+            output_type = line[2:]
+            if output_type.startswith('stream'):
+                if len(output_type) < 7 or output_type[6] != ' ':
+                    raise ParseError('Expected stream type')
+                current_output = _nbformat.v4.new_output('stream')
+                # NB: "name" is required!
+                # TODO: check if name is valid?
+                current_output.name = output_type[7:]
+                text, line = yield from self.parse_indented_lines()
+                current_output.text = text
+
+            elif (_check_word('display_data', output_type) or
+                    _check_word('execute_result', output_type)):
+                current_output = _nbformat.v4.new_output(output_type)
+                if output_type == 'execute_result':
+                    assert self.nb.cells
+                    assert self.nb.cells[-1].cell_type == 'code'
+                    current_output.execution_count = \
+                        self.nb.cells[-1].execution_count
+
+                current_output.data, line = yield from self.parse_output_data()
+
+                # TODO: output metadata ("  - metadata")
+
+            # TODO: error
+
+            elif output_type.startswith('metadata'):
+                break
+            else:
+                raise ParseError('Expected cell output or "metadata"')
+            outputs.append(current_output)
+
+        return outputs, line
+
+    def parse_output_data(self):
+        data = {}
+        line = yield
+        while True:
+            if line is None:
+                break
+            if not line.startswith('  - '):
+                break
+            mime_type = line[4:]
+            if mime_type.strip() == 'metadata':
+                break
+            if mime_type != mime_type.strip():
+                raise ParseError('Invalid MIME type: {!r}'.format(mime_type))
+            # TODO: check for valid MIME type?
+            content, line = yield from self.parse_indented_lines()
+            if _RE_JSON.match(mime_type):
+                data[mime_type] = _json.loads(content)
+            else:
+                data[mime_type] = content
+        return data, line
+
+    # TODO: move out of class
+    def parse_indented_lines(self):
+        lines = []
+        while True:
+            line = yield
+            if line is None:
+                break
+            if line.startswith(' ' * 4):
+                line = line[4:]
+            elif not line.strip():
+                line = ''  # Blank line
+            else:
+                break
+            lines.append(line)
+        return '\n'.join(lines), line
+
+    # TODO: move out of class
+    def parse_cell_metadata(self):
+        lines = []
+        while True:
+            line = yield
+            if line is None:
+                break
+            if line.startswith(' ' * 4):
+                line = line[4:]
+            elif not line.strip():
+                line = ''  # Blank line
+            else:
+                break
+            lines.append(line)
+        if not lines:
+            return {}, line
+        return _parse_json(lines), line
+
+    # TODO: move out of class
+    def parse_notebook_metadata(self):
+        lines = []
+        while True:
+            line = yield
+            if line is None:
+                break
+            if line.startswith(' ' * 4):
+                line = line[4:]
+            elif not line.strip():
+                line = ''
+            else:
+                raise ParseError(
+                    'All notebook metadata lines must be indented by 4 spaces')
+            lines.append(line)
+        if not lines:
+            return {}
+        return _parse_json(lines)
+
+
+def _parse_json(lines):
+    try:
+        metadata = _json.loads('\n'.join(lines))
+    except _json.JSONDecodeError as e:
+        raise ParseError(
+            'JSON error in column {}: {}'.format(e.colno + 4, e.msg),
+            len(lines) - e.lineno)
+    return metadata
+
+
+def _check_word_plus_integer(line, word):
+    if line is None:
+        line = ''
+    m = _re.match(word + ' ([0-9]|[1-9][0-9]+)$', line)
+    if not m:
+        raise ParseError('Expected {!r} followed by an integer'.format(word))
+    return int(m.group(1))
+
+
+def _check_word(line, word):
+    if line.startswith(word):
+        if line != word:
+            raise ParseError('No text allowed after {!r}'.format(word))
+        return True
+    else:
+        return False
 
 
 class ParseError(Exception):
@@ -399,9 +344,9 @@ def _code_cell_output(out):
             # TODO: text-based formats first?
             for k, v in out.data.items():
                 if _RE_JSON.match(k):
-                    yield from _json_block('  ', '- ' + k, v)
+                    yield from _json_block('  - ' + k, v)
                 else:
-                    yield from _text_block('  ', '- ' + k, v)
+                    yield from _text_block('  - ' + k, v)
         # TODO: metadata
     elif out.output_type == 'error':
         yield _line('  ', out.output_type)
@@ -458,14 +403,14 @@ def _read_prefixed_block(lines, prefix):
     return ''.join(block), (nr, line)
 
 
-def _text_block(prefix, key, value):
-    yield '{}{}\n'.format(prefix, key)
-    yield from _prefixed_block(prefix + '  ', value)
+def _text_block(key, value):
+    yield key + '\n'
+    yield from _prefixed_block(' ' * 4, value)
 
 
-def _json_block(prefix, key, value):
-    yield '{}{}\n'.format(prefix, key)
-    yield from _prefixed_block(prefix + '  ', _serialize_json(value))
+def _json_block(key, value):
+    yield key + '\n'
+    yield from _prefixed_block(' ' * 4, _serialize_json(value))
 
 
 def _serialize_json(data):
