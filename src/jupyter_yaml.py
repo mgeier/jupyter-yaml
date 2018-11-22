@@ -24,7 +24,7 @@ def generate_lines(nb):
             yield _line('', 'code', cell.execution_count)
         else:
             yield _line('', cell_type)
-        yield from _prefixed_block('    ', cell.source)
+        yield from _indented_block(cell.source)
         if cell.source == '' or cell.source.endswith('\n'):
             # NB: This additional \n has to be removed when reading
             yield '    \n'
@@ -179,6 +179,18 @@ def _parse_code_outputs(execution_count, line):
             # TODO: output metadata ("  - metadata")
 
         # TODO: error
+        #elif output_type == 'error':
+        #    # NB: All fields are required
+        #    line = next(lines)
+        #    if line[1].rstrip() != '  - ename':
+        #        raise ParseError('Expected "  - ename"', line[0])
+        #    out['ename'], line = _read_prefixed_block(lines, ' ' * 4)
+        #    if line[1].rstrip() != '  - evalue':
+        #        raise ParseError('Expected "  - evalue"', line[0])
+        #    out['evalue'], line = _read_prefixed_block(lines, ' ' * 4)
+        #    if line[1].rstrip() != '  - traceback':
+        #        raise ParseError('Expected "  - traceback"', line[0])
+        #    out['traceback'], line = _read_traceback(lines)
 
         elif output_type.startswith('metadata'):
             break
@@ -204,13 +216,13 @@ def _parse_output_data():
         # TODO: check for valid MIME type?
         content, line = yield from _parse_indented_lines()
         if _RE_JSON.match(mime_type):
-            data[mime_type] = _json.loads(content)
+            data[mime_type] = _parse_json(content)
         else:
             data[mime_type] = content
     return data, line
 
 
-def _parse_metadata():
+def _parse_indented_lines():
     lines = []
     while True:
         line = yield
@@ -221,9 +233,12 @@ def _parse_metadata():
         else:
             break
         lines.append(line)
-    if not lines:
-        return {}, line
-    return _parse_json(lines), line
+    return '\n'.join(lines), line
+
+
+def _parse_metadata():
+    text, line = yield from _parse_indented_lines()
+    return _parse_json(text), line
 
 
 def _parse_notebook_metadata(line):
@@ -263,28 +278,18 @@ def _check_word(line, word):
         return False
 
 
-def _parse_indented_lines():
-    lines = []
-    while True:
-        line = yield
-        if line.startswith(' ' * 4):
-            line = line[4:]
-        elif not line.strip():
-            line = ''  # Blank line
-        else:
-            break
-        lines.append(line)
-    return '\n'.join(lines), line
-
-
-def _parse_json(lines):
+def _parse_json(text):
+    if not text:
+        return {}
     try:
-        metadata = _json.loads('\n'.join(lines))
+        data = _json.loads(text)
     except _json.JSONDecodeError as e:
+        # Abuse JSONDecodeError constructor to calculate number of lines:
+        total = _json.JSONDecodeError('', text, -1).lineno
         raise ParseError(
             'JSON error in column {}: {}'.format(e.colno + 4, e.msg),
-            len(lines) - e.lineno + 1)
-    return metadata
+            total - e.lineno + 1)
+    return data
 
 
 class ParseError(Exception):
@@ -306,7 +311,7 @@ def _code_cell_output(out):
     if out.output_type == 'stream':
         # TODO: can "name" be empty?
         yield _line('  ', 'stream', out.name)
-        yield from _prefixed_block(' ' * 4, out.text)
+        yield from _indented_block(out.text)
     elif out.output_type in ('display_data', 'execute_result'):
         yield _line('  ', out.output_type)
         # TODO: check if out.execution_count matches cell.execution_count?
@@ -324,9 +329,9 @@ def _code_cell_output(out):
     elif out.output_type == 'error':
         yield _line('  ', out.output_type)
         yield _line('  - ', 'ename')
-        yield from _prefixed_block(' ' * 4, out.ename)
+        yield from _indented_block(out.ename)
         yield _line('  - ', 'evalue')
-        yield from _prefixed_block(' ' * 4, out.evalue)
+        yield from _indented_block(out.evalue)
         yield _line('  - ', 'traceback')
         # NB: Traceback lines don't seem to be \n-terminated,
         #     but they may contain \n characters in the middle!
@@ -358,97 +363,25 @@ def _code_cell_output(out):
 #    return traceback, line
 
 
-def _prefixed_block(prefix, text):
+def _indented_block(text):
     for line in text.splitlines():
-        yield prefix + line + '\n'
-
-
-def _read_prefixed_block(lines, prefix):
-    block = []
-    for nr, line in lines:
-        no_match, _, block_line = line.partition(prefix)
-        if no_match:
-            break
-        assert _ == prefix
-        block.append(block_line)
-    else:
-        nr, line = None, None
-    return ''.join(block), (nr, line)
+        yield ' ' * 4 + line + '\n'
 
 
 def _text_block(key, value):
     yield key + '\n'
-    yield from _prefixed_block(' ' * 4, value)
+    yield from _indented_block(value)
 
 
 def _json_block(key, value):
     yield key + '\n'
-    yield from _prefixed_block(' ' * 4, _serialize_json(value))
+    yield from _indented_block(_serialize_json(value))
 
 
 def _serialize_json(data):
     # Options should be the same as in nbformat!
     # TODO: allow bytes? see BytesEncoder?
     return _json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
-
-
-def _parse_outputs_old(line, lines, cell):
-    # Outputs are added to cell.outputs, StopIteration may happen any time
-    cell.outputs = []
-    while True:
-        if not line[1].startswith('  '):
-            break
-
-        out = {}
-        cell.outputs.append(out)
-
-        output_type = line[1][2:].rstrip()
-        out['output_type'] = output_type
-        if output_type.startswith('stream'):
-            if output_type[6] != ' ':
-                raise ParseError('Expected "stream stdout" or "stream stderr"',
-                                 line[0])
-            out['output_type'] = 'stream'
-            out['name'] = output_type[7:].lstrip(' ')
-            text, line = _read_prefixed_block(lines, ' ' * 4)
-            # TODO: no \n has to be removed?
-            out['text'] = text
-        elif output_type in ('display_data', 'execute_result'):
-            if output_type == 'execute_result':
-                out['execution_count'] = cell.execution_count
-            out['data'] = {}
-            line = next(lines)
-            while True:
-                if not line[1].startswith('  - '):
-                    break
-                mime_type = line[1][4:].rstrip()
-                if mime_type == 'metadata':
-                    # TODO: read metadata
-                    raise ParseError('TODO: implement output "metadata"',
-                                     line[0])
-                data, line = _read_prefixed_block(lines, ' ' * 4)
-
-                # TODO: remove trailing \n?
-
-                if _RE_JSON.match(mime_type):
-                    data = _json.loads(data)
-                out['data'][mime_type] = data
-        elif output_type == 'error':
-            # NB: All fields are required
-            line = next(lines)
-            if line[1].rstrip() != '  - ename':
-                raise ParseError('Expected "  - ename"', line[0])
-            out['ename'], line = _read_prefixed_block(lines, ' ' * 4)
-            if line[1].rstrip() != '  - evalue':
-                raise ParseError('Expected "  - evalue"', line[0])
-            out['evalue'], line = _read_prefixed_block(lines, ' ' * 4)
-            if line[1].rstrip() != '  - traceback':
-                raise ParseError('Expected "  - traceback"', line[0])
-            out['traceback'], line = _read_traceback(lines)
-        else:
-            raise ParseError('Unknown output type: {!r}'.format(output_type),
-                             line[0])
-    return line
 
 
 class FileContentsManager(_fm.FileContentsManager):
