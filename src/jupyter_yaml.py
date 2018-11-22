@@ -16,7 +16,7 @@ _RE_JSON = _re.compile('^application/(.*\\+)?json$')
 def generate_lines(nb):
     if nb.nbformat != 4:
         raise RuntimeError('Currently, only notebook version 4 is supported')
-    yield _line('', 'nbformat', '4')
+    yield _line('', 'nbformat', nb.nbformat)
     yield _line('', 'nbformat_minor', nb.nbformat_minor)
     for cell in nb.cells:
         cell_type = cell.cell_type
@@ -24,10 +24,7 @@ def generate_lines(nb):
             yield _line('', 'code', cell.execution_count)
         else:
             yield _line('', cell_type)
-        yield from _indented_block(cell.source)
-        if cell.source == '' or cell.source.endswith('\n'):
-            # NB: This additional \n has to be removed when reading
-            yield '    \n'
+        yield from _indented_block(cell.source + '\n')
 
         # NB: everything else is optional!
 
@@ -78,9 +75,6 @@ def deserialize(source):
             parser.send(line)
         i += 1
         parser.send(_TERMINATOR)
-    except StopIteration:
-        assert False
-        raise ParseError('Too much source text?', i + 1)
     except ParseError as e:
         if len(e.args) == 1:
             # Add line number
@@ -167,35 +161,31 @@ def _parse_code_outputs(execution_count, line):
             out.name = output_type[7:]
             text, line = yield from _parse_indented_lines()
             out.text = text
-
         elif (_check_word('display_data', output_type) or
                 _check_word('execute_result', output_type)):
             out = _nbformat.v4.new_output(output_type)
             if output_type == 'execute_result':
                 out.execution_count = execution_count
-
             out.data, line = yield from _parse_output_data()
-
             # TODO: output metadata ("  - metadata")
-
-        # TODO: error
-        #elif output_type == 'error':
-        #    # NB: All fields are required
-        #    line = next(lines)
-        #    if line[1].rstrip() != '  - ename':
-        #        raise ParseError('Expected "  - ename"', line[0])
-        #    out['ename'], line = _read_prefixed_block(lines, ' ' * 4)
-        #    if line[1].rstrip() != '  - evalue':
-        #        raise ParseError('Expected "  - evalue"', line[0])
-        #    out['evalue'], line = _read_prefixed_block(lines, ' ' * 4)
-        #    if line[1].rstrip() != '  - traceback':
-        #        raise ParseError('Expected "  - traceback"', line[0])
-        #    out['traceback'], line = _read_traceback(lines)
+        elif _check_word('error', output_type):
+            out = _nbformat.v4.new_output('error')
+            line = yield
+            # NB: All fields are required
+            if line != '  - ename':
+                raise ParseError("Expected '  - ename'")
+            out['ename'], line = yield from _parse_indented_lines()
+            if line != '  - evalue':
+                raise ParseError("Expected '  - evalue'")
+            out['evalue'], line = yield from _parse_indented_lines()
+            if line != '  - traceback':
+                raise ParseError("Expected '  - traceback'")
+            out['traceback'], line = yield from _parse_traceback()
 
         elif output_type.startswith('metadata'):
             break
         else:
-            raise ParseError('Expected cell output or "metadata"')
+            raise ParseError("Expected cell output or 'metadata'")
         outputs.append(out)
     return outputs, line
 
@@ -214,15 +204,31 @@ def _parse_output_data():
         if mime_type != mime_type.strip():
             raise ParseError('Invalid MIME type: {!r}'.format(mime_type))
         # TODO: check for valid MIME type?
-        content, line = yield from _parse_indented_lines()
+        content, line = yield from _parse_indented_lines(trailing_newline=True)
         if _RE_JSON.match(mime_type):
             data[mime_type] = _parse_json(content)
         else:
+            if content and content.endswith('\n') and content.strip('\n'):
+                content = content[:-1]
             data[mime_type] = content
     return data, line
 
 
-def _parse_indented_lines():
+def _parse_traceback():
+    traceback = []
+    while True:
+        frame, line = yield from _parse_indented_lines()
+        assert not frame.endswith('\n')
+        traceback.append(frame)
+        no_match, _, tail = line.partition('   ~')
+        if no_match:
+            break
+        if tail.strip():
+            raise ParseError("No text allowed after '~'")
+    return traceback, line
+
+
+def _parse_indented_lines(trailing_newline=False):
     lines = []
     while True:
         line = yield
@@ -233,7 +239,12 @@ def _parse_indented_lines():
         else:
             break
         lines.append(line)
-    return '\n'.join(lines), line
+    if not lines:
+        return '', line
+    text = '\n'.join(lines)
+    if trailing_newline:
+        text += '\n'
+    return text, line
 
 
 def _parse_metadata():
@@ -265,7 +276,8 @@ def _check_word_plus_integer(line, word):
         line = ''
     m = _re.match(word + ' ([0-9]|[1-9][0-9]+)$', line)
     if not m:
-        raise ParseError('Expected {!r} followed by an integer'.format(word))
+        raise ParseError(
+            'Expected {!r} followed by a space and an integer'.format(word))
     return int(m.group(1))
 
 
@@ -324,6 +336,8 @@ def _code_cell_output(out):
                 if _RE_JSON.match(k):
                     yield from _json_block('  - ' + k, v)
                 else:
+                    if v.endswith('\n') and v.strip('\n'):
+                        v += '\n'
                     yield from _text_block('  - ' + k, v)
         # TODO: metadata
     elif out.output_type == 'error':
@@ -345,22 +359,6 @@ def _code_cell_output(out):
                 yield '    ' + line + '\n'
     else:
         raise RuntimeError('Unknown output type: {!r}'.format(out.output_type))
-
-
-#def _read_traceback(lines):
-#    traceback = []
-#    while True:
-#        frame, line = _read_prefixed_block(lines, ' ' * 4)
-#        if frame.endswith('\n'):
-#            # This is the normal case
-#            frame = frame[:-1]
-#        traceback.append(frame)
-#        no_match, _, tail = line[1].partition('   ~')
-#        if no_match:
-#            break
-#        if tail.strip():
-#            raise ParseError('No text allowed after "~"', line[0])
-#    return traceback, line
 
 
 def _indented_block(text):
