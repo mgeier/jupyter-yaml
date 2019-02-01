@@ -153,36 +153,36 @@ def _parse_code_outputs(execution_count, line):
         if line.startswith(' ' * 3):
             raise ParseError('Invalid indentation')
         output_type = line[2:]
+        kwargs = {}
         if output_type.startswith('stream'):
             if len(output_type) < 7 or output_type[6] != ' ':
                 raise ParseError('Expected stream type')
-            out = _nbformat.v4.new_output('stream')
             # NB: "name" is required!
             # TODO: check if name is valid?
-            out.name = output_type[7:]
+            kwargs['name'] = output_type[7:]
             text, line = yield from _parse_indented_lines()
-            out.text = text
+            kwargs['text'] = text
+            out = _nbformat.v4.new_output('stream', **kwargs)
         elif (_check_word('display_data', output_type) or
                 _check_word('execute_result', output_type)):
-            out = _nbformat.v4.new_output(output_type)
             if output_type == 'execute_result':
-                out.execution_count = execution_count
-            out.data, line = yield from _parse_output_data()
+                kwargs['execution_count'] = execution_count
+            kwargs['data'], line = yield from _parse_output_data()
             # TODO: output metadata ("  - metadata")
+            out = _nbformat.v4.new_output(output_type, **kwargs)
         elif _check_word('error', output_type):
-            out = _nbformat.v4.new_output('error')
             line = yield
             # NB: All fields are required
             if line != '  - ename':
                 raise ParseError("Expected '  - ename'")
-            out['ename'], line = yield from _parse_indented_lines()
+            kwargs['ename'], line = yield from _parse_indented_lines()
             if line != '  - evalue':
                 raise ParseError("Expected '  - evalue'")
-            out['evalue'], line = yield from _parse_indented_lines()
+            kwargs['evalue'], line = yield from _parse_indented_lines()
             if line != '  - traceback':
                 raise ParseError("Expected '  - traceback'")
-            out['traceback'], line = yield from _parse_traceback()
-
+            kwargs['traceback'], line = yield from _parse_traceback()
+            out = _nbformat.v4.new_output('error', **kwargs)
         elif output_type.startswith('metadata'):
             break
         else:
