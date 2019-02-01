@@ -1,4 +1,4 @@
-from jupyter_yaml import to_yaml
+from jupyter_format import serialize
 import nbformat
 import pytest
 
@@ -10,13 +10,13 @@ def nb():
 
 def test_minimal_notebook(nb):
     nb.nbformat_minor = 1
-    assert to_yaml(nb) == 'nbformat: 4\nnbformat_minor: 1\ncells:\nmetadata:\n'
+    assert serialize(nb) == 'nbformat 4\nnbformat_minor 1\n'
 
 
 def test_only_version_4_is_allowed(nb):
     nb.nbformat = 5
     with pytest.raises(RuntimeError) as excinfo:
-        to_yaml(nb)
+        serialize(nb)
     assert 'version 4' in str(excinfo.value)
 
 
@@ -25,5 +25,5 @@ def test_unknown_cell_type(nb):
     cell.cell_type = 'nonsense'
     nb.cells.append(cell)
     with pytest.raises(RuntimeError) as excinfo:
-        to_yaml(nb)
+        serialize(nb)
     assert "'nonsense'" in str(excinfo.value)

@@ -1,13 +1,17 @@
 from setuptools import setup
 
 setup(
-    name='jupyter_yaml',
+    name='jupyter_format',
     version='0.0.0',
     package_dir={'': 'src'},
-    py_modules=['jupyter_yaml'],
+    py_modules=['jupyter_format'],
+    install_requires=[
+        'nbformat',
+    ],
+    python_requires='>=3.5',
     author='Matthias Geier',
     author_email='Matthias.Geier@gmail.com',
-    description='',
+    description='An Experimental New Format For Jupyter Notebooks',
     long_description=open('README.rst').read(),
     license='MIT',
     keywords=''.split(),

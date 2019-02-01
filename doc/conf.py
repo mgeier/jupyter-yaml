@@ -1,4 +1,4 @@
-project = 'Jupyter YAML'
+project = 'Jupyter Format'
 author = 'Matthias Geier'
 copyright = '2018, ' + author
 
@@ -88,7 +88,7 @@ latex_elements = {
 }
 
 latex_documents = [
-    (master_doc, 'JupyterYAML.tex', project, author, 'howto'),
+    (master_doc, 'Jupyter-Format.tex', project, author, 'howto'),
 ]
 
 latex_show_urls = 'footnote'

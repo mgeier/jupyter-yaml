@@ -2,6 +2,7 @@ import json as _json
 import re as _re
 
 import nbformat as _nbformat
+# TODO: make import optional?
 import notebook.services.contents.filemanager as _fm
 
 SUFFIX = '.jupyter'
