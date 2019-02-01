@@ -1,2 +1,2 @@
-An Experimental New Format For Jupyter Notebooks
-================================================
+An Experimental New Storage Format For Jupyter Notebooks
+========================================================

@@ -11,7 +11,7 @@ setup(
     python_requires='>=3.5',
     author='Matthias Geier',
     author_email='Matthias.Geier@gmail.com',
-    description='An Experimental New Format For Jupyter Notebooks',
+    description='An Experimental New Storage Format For Jupyter Notebooks',
     long_description=open('README.rst').read(),
     license='MIT',
     keywords=''.split(),

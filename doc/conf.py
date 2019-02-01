@@ -1,6 +1,6 @@
 project = 'Jupyter Format'
 author = 'Matthias Geier'
-copyright = '2018, ' + author
+copyright = '2019, ' + author
 
 extensions = [
     'nbsphinx',
@@ -15,7 +15,7 @@ exclude_patterns = ['**.ipynb_checkpoints']
 # -- nbsphinx-related options ---------------------------------------------
 
 nbsphinx_custom_formats = {
-    '.jupyter': 'jupyter_yaml.from_yaml',
+    '.jupyter': 'jupyter_format.deserialize',
 }
 
 nbsphinx_execute_arguments = ['--InlineBackend.figure_formats={"svg", "pdf"}']
@@ -32,9 +32,9 @@ nbsphinx_prolog = r"""
 
         This page was generated from `{{ docname }}`__.
         Interactive online version:
-        :raw-html:`<a href="https://mybinder.org/v2/gh/mgeier/jupyter-yaml/{{ env.config.release }}?filepath={{ docname }}"><img alt="Binder badge" src="https://mybinder.org/badge.svg" style="vertical-align:text-bottom"></a>`
+        :raw-html:`<a href="https://mybinder.org/v2/gh/mgeier/jupyter-format/{{ env.config.release }}?filepath={{ docname }}"><img alt="Binder badge" src="https://mybinder.org/badge.svg" style="vertical-align:text-bottom"></a>`
 
-    __ https://github.com/mgeier/jupyter-yaml/blob/
+    __ https://github.com/mgeier/jupyter-format/blob/
         {{ env.config.release }}/{{ docname }}
 
 .. raw:: latex
