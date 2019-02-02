@@ -10,8 +10,6 @@ _TERMINATOR = 'the end'
 # RegEx from nbformat JSON schema:
 _RE_JSON = _re.compile('^application/(.*\\+)?json$')
 
-# TODO: somehow use JSON schema? nbformat.validator.get_validator(4, 2)
-
 
 def generate_lines(nb):
     if nb.nbformat != 4:
@@ -25,18 +23,13 @@ def generate_lines(nb):
         else:
             yield _line('', cell_type)
         yield from _indented_block(cell.source + '\n')
-
-        # NB: everything else is optional!
-
-        if cell_type == 'markdown':
-            # TODO: attachments (since v4.1)
-            pass
+        if cell_type in ('markdown', 'raw'):
+            # attachments (since v4.1)
+            for name, data in cell.get('attachments', {}).items():
+                yield from _attachment(name, data)
         elif cell_type == 'code':
             for out in cell.outputs:
                 yield from _code_cell_output(out)
-        elif cell_type == 'raw':
-            # TODO: attachments (since v4.1)
-            pass
         else:
             raise RuntimeError('Unknown cell type: {!r}'.format(cell_type))
         if cell.metadata:
@@ -129,10 +122,10 @@ def _parse_cells():
             break
         cell.source, line = yield from _parse_indented_lines()
         if cell.cell_type in ('markdown', 'raw'):
-            # TODO: parse attachments
-            # TODO: attachments (since v4.1)
-            #yield from _parse_???(line)
-            pass
+            # attachments (since v4.1)
+            attachments, line = yield from _parse_attachments(line)
+            if attachments:
+                cell.attachments = attachments
         elif cell.cell_type == 'code':
             cell.outputs, line = yield from _parse_code_outputs(
                 cell.execution_count, line)
@@ -141,6 +134,16 @@ def _parse_cells():
             cell.metadata = metadata
         cells.append(cell)
     return cells, line
+
+
+def _parse_attachments(line):
+    attachments = {}
+    if line.startswith('  attachment'):
+        if len(line) < 14 or line[12] != ' ':
+            raise ParseError('Expected attachment name')
+        name = line[13:]
+        attachments[name], line = yield from _parse_mime_bundle()
+    return attachments, line
 
 
 def _parse_code_outputs(execution_count, line):
@@ -166,7 +169,7 @@ def _parse_code_outputs(execution_count, line):
                 _check_word('execute_result', output_type)):
             if output_type == 'execute_result':
                 kwargs['execution_count'] = execution_count
-            kwargs['data'], line = yield from _parse_output_data()
+            kwargs['data'], line = yield from _parse_mime_bundle()
             # TODO: output metadata ("  - metadata")
             out = _nbformat.v4.new_output(output_type, **kwargs)
         elif _check_word('error', output_type):
@@ -190,7 +193,7 @@ def _parse_code_outputs(execution_count, line):
     return outputs, line
 
 
-def _parse_output_data():
+def _parse_mime_bundle():
     data = {}
     line = yield
     while True:
@@ -319,6 +322,24 @@ def _line(prefix, key, value=None):
         return '{}{} {}\n'.format(prefix, key, value)
 
 
+def _mime_bundle(data):
+    # TODO: sort MIME types?
+    # TODO: alphabetically, by importance?
+    # TODO: text-based formats first?
+    for k, v in data.items():
+        if _RE_JSON.match(k):
+            yield from _json_block('  - ' + k, v)
+        else:
+            if v.endswith('\n') and v.strip('\n'):
+                v += '\n'
+            yield from _text_block('  - ' + k, v)
+
+
+def _attachment(name, data):
+    yield _line('  ', 'attachment', name)
+    yield from _mime_bundle(data)
+
+
 def _code_cell_output(out):
     if out.output_type == 'stream':
         # TODO: can "name" be empty?
@@ -329,16 +350,7 @@ def _code_cell_output(out):
         # TODO: check if out.execution_count matches cell.execution_count?
         # TODO: is "data" required? error message?
         if out.data:
-            # TODO: sort MIME types?
-            # TODO: alphabetically, by importance?
-            # TODO: text-based formats first?
-            for k, v in out.data.items():
-                if _RE_JSON.match(k):
-                    yield from _json_block('  - ' + k, v)
-                else:
-                    if v.endswith('\n') and v.strip('\n'):
-                        v += '\n'
-                    yield from _text_block('  - ' + k, v)
+            yield from _mime_bundle(out.data)
         # TODO: metadata
     elif out.output_type == 'error':
         yield _line('  ', out.output_type)
