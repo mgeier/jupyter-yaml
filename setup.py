@@ -34,8 +34,19 @@ setup(
     zip_safe=True,
     entry_points={
         'nbconvert.exporters': [
-            'jupyter = jupyter_format.nbconvert_integration:Exporter',
-            'notebook = jupyter_format.nbconvert_integration:Importer',
+            'jupyter = jupyter_format.exporters:JupyterExporter',
+            # Overwrite the nbconvert exporters with extended classes:
+            'custom = jupyter_format.exporters:TemplateExporter',
+            'html = jupyter_format.exporters:HTMLExporter',
+            'slides = jupyter_format.exporters:SlidesExporter',
+            'latex = jupyter_format.exporters:LatexExporter',
+            'pdf = jupyter_format.exporters:PDFExporter',
+            'markdown = jupyter_format.exporters:MarkdownExporter',
+            'python = jupyter_format.exporters:PythonExporter',
+            'rst = jupyter_format.exporters:RSTExporter',
+            'notebook = jupyter_format.exporters:NotebookExporter',
+            'asciidoc = jupyter_format.exporters:ASCIIDocExporter',
+            'script = jupyter_format.exporters:ScriptExporter',
         ],
     },
 )
