@@ -1,9 +1,8 @@
+"""Serialize and deserialize Jupyter format."""
 import json as _json
 import re as _re
 
 import nbformat as _nbformat
-# TODO: make import optional?
-import notebook.services.contents.filemanager as _fm
 
 SUFFIX = '.jupyter'
 _TERMINATOR = 'the end'
@@ -381,32 +380,3 @@ def _serialize_json(data):
     # Options should be the same as in nbformat!
     # TODO: allow bytes? see BytesEncoder?
     return _json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
-
-
-class FileContentsManager(_fm.FileContentsManager):
-
-    def get(self, path, content=True, type=None, format=None):
-        if type is None and path.endswith(SUFFIX):
-            type = 'notebook'
-        return super().get(path, content, type, format)
-
-    def _read_notebook(self, os_path, as_version=4):
-        if not os_path.endswith(SUFFIX):
-            return super()._read_notebook(os_path, as_version)
-
-        with self.open(os_path, 'r', encoding='utf-8', newline=None) as f:
-            try:
-                assert as_version == 4
-                return deserialize(f)
-            except Exception as e:
-                raise _fm.web.HTTPError(400, str(e))
-
-    def _save_notebook(self, os_path, nb):
-        if not os_path.endswith(SUFFIX):
-            return super()._save_notebook(os_path, nb)
-
-        # TODO: raise proper exception on error?
-        with self.atomic_writing(os_path, text=True,
-                                 newline=None,  # "universal newlines"
-                                 encoding='utf-8') as f:
-            f.writelines(generate_lines(nb))
