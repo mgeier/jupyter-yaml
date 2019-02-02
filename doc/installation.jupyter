@@ -52,15 +52,15 @@ markdown
     ```python
     c.NotebookApp.contents_manager_class = 'jupyter_format.contents_manager.FileContentsManager'
     ```
-
+    
     <div class="alert alert-info">
-
+    
     At the time of writing this,
     JupyterLab is not yet able to open `*.jupyter` files by double-clicking.
     You have to right-click and use "Open With" $\to$ "Notebook".
     See also https://github.com/jupyterlab/jupyterlab/issues/4924 and
     https://github.com/jupyterlab/jupyterlab/pull/5247.
-
+    
     </div>
 markdown
     ## Usage on Binder
