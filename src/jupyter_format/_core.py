@@ -34,10 +34,8 @@ def generate_lines(nb):
             raise RuntimeError('Unknown cell type: {!r}'.format(cell_type))
         if cell.metadata:
             yield from _json_block('  metadata', cell.metadata)
-        # TODO: warning/error if there are unknown attributes
     if nb.metadata:
         yield from _json_block('metadata', nb.metadata)
-    # TODO: warning/error if there are unknown attributes
 
 
 def serialize(nb):
@@ -160,7 +158,6 @@ def _parse_code_outputs(execution_count, line):
             if len(output_type) < 7 or output_type[6] != ' ':
                 raise ParseError('Expected stream type')
             # NB: "name" is required!
-            # TODO: check if name is valid?
             kwargs['name'] = output_type[7:]
             text, line = yield from _parse_indented_lines()
             kwargs['text'] = text
@@ -169,8 +166,9 @@ def _parse_code_outputs(execution_count, line):
                 _check_word('execute_result', output_type)):
             if output_type == 'execute_result':
                 kwargs['execution_count'] = execution_count
+            # TODO: only add keyword if data is available?
             kwargs['data'], line = yield from _parse_mime_bundle()
-            # TODO: output metadata ("  - metadata")
+            kwargs['metadata'], line = yield from _parse_output_metadata(line)
             out = _nbformat.v4.new_output(output_type, **kwargs)
         elif _check_word('error', output_type):
             line = yield
@@ -200,13 +198,10 @@ def _parse_mime_bundle():
         if not line.startswith('  - '):
             break
         mime_type = line[4:]
-        # TODO: move check to _parse_output_metadata
         if mime_type.strip() == 'metadata':
             break
-        # TODO: move check to _parse_output_metadata
         if mime_type != mime_type.strip():
             raise ParseError('Invalid MIME type: {!r}'.format(mime_type))
-        # TODO: check for valid MIME type?
         content, line = yield from _parse_indented_lines(trailing_newline=True)
         if _RE_JSON.match(mime_type):
             data[mime_type] = _parse_json(content)
@@ -215,6 +210,13 @@ def _parse_mime_bundle():
                 content = content[:-1]
             data[mime_type] = content
     return data, line
+
+
+def _parse_output_metadata(line):
+    metadata = {}
+    if line.startswith('  ') and _check_word('- metadata', line[2:]):
+        metadata, line = yield from _parse_metadata()
+    return metadata, line
 
 
 def _parse_traceback():
@@ -342,7 +344,7 @@ def _attachment(name, data):
 
 def _code_cell_output(out):
     if out.output_type == 'stream':
-        # TODO: can "name" be empty?
+        # NB: "name" is required!
         yield _line('  ', 'stream', out.name)
         yield from _indented_block(out.text)
     elif out.output_type in ('display_data', 'execute_result'):
@@ -351,7 +353,8 @@ def _code_cell_output(out):
         # TODO: is "data" required? error message?
         if out.data:
             yield from _mime_bundle(out.data)
-        # TODO: metadata
+        if out.metadata:
+            yield from _json_block('  - metadata', out.metadata)
     elif out.output_type == 'error':
         yield _line('  ', out.output_type)
         yield _line('  - ', 'ename')
