@@ -35,7 +35,7 @@ setup(
     entry_points={
         'nbconvert.exporters': [
             'jupyter = jupyter_format.nbconvert_integration:Exporter',
-            'jupyter_notebook = jupyter_format.nbconvert_integration:Importer',
+            'notebook = jupyter_format.nbconvert_integration:Importer',
         ],
     },
 )
