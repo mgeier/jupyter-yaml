@@ -20,9 +20,20 @@ nbsphinx_custom_formats = {
 
 nbsphinx_execute_arguments = ['--InlineBackend.figure_formats={"svg", "pdf"}']
 
-nbsphinx_prolog = r"""
+jinja_define = """
 {% set docname = env.doc2path(env.docname, base='doc') %}
+{% set latex_href = ''.join([
+    '\href{https://github.com/mgeier/jupyter-format/blob/',
+    env.config.release,
+    '/',
+    docname | escape_latex,
+    '}{\sphinxcode{\sphinxupquote{',
+    docname | escape_latex,
+    '}}}',
+]) %}
+"""
 
+nbsphinx_prolog = jinja_define + r"""
 .. only:: html
 
     .. role:: raw-html(raw)
@@ -32,7 +43,7 @@ nbsphinx_prolog = r"""
 
         This page was generated from `{{ docname }}`__.
         Interactive online version:
-        :raw-html:`<a href="https://mybinder.org/v2/gh/mgeier/jupyter-format/{{ env.config.release }}?filepath={{ docname }}"><img alt="Binder badge" src="https://mybinder.org/badge.svg" style="vertical-align:text-bottom"></a>`
+        :raw-html:`<a href="https://mybinder.org/v2/gh/mgeier/jupyter-format/{{ env.config.release }}?filepath={{ docname }}"><img alt="Binder badge" src="https://mybinder.org/badge_logo.svg" style="vertical-align:text-bottom"></a>`
 
     __ https://github.com/mgeier/jupyter-format/blob/
         {{ env.config.release }}/{{ docname }}
@@ -40,16 +51,15 @@ nbsphinx_prolog = r"""
 .. raw:: latex
 
     \nbsphinxstartnotebook{\scriptsize\noindent\strut
-    \textcolor{gray}{The following section was generated from
-    \sphinxcode{\sphinxupquote{\strut {{ docname | escape_latex }}}} \dotfill}}
+    \textcolor{gray}{The following section was generated from {{ latex_href }}
+    \dotfill}}
 """
 
-nbsphinx_epilog = r"""
+nbsphinx_epilog = jinja_define + r"""
 .. raw:: latex
 
     \nbsphinxstopnotebook{\scriptsize\noindent\strut
-    \textcolor{gray}{\dotfill\ \sphinxcode{\sphinxupquote{\strut
-    {{ env.doc2path(env.docname, base='doc') | escape_latex }}}} ends here.}}
+    \textcolor{gray}{\dotfill\ {{ latex_href }} ends here.}}
 """
 
 # -- Get version information and date from Git ----------------------------
