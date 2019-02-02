@@ -1,8 +1,15 @@
 from setuptools import setup
 
+# "import" __version__
+__version__ = 'unknown'
+for line in open('src/jupyter_format/__init__.py'):
+    if line.startswith('__version__'):
+        exec(line)
+        break
+
 setup(
     name='jupyter_format',
-    version='0.0.0',
+    version=__version__,
     package_dir={'': 'src'},
     packages=['jupyter_format'],
     install_requires=['nbformat'],
