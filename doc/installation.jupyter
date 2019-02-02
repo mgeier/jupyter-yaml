@@ -11,7 +11,7 @@ markdown
     # Installation
     
     Since `jupyter_format` is in an experimental state,
-    it is deliberatly *not* available on [PyPI](https://pypi.org).
+    it is deliberately *not* available on [PyPI](https://pypi.org).
     
     But if you want to play around with it,
     you can get it from Github and make an "editable" installation with
