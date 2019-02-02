@@ -5,7 +5,7 @@ copyright = '2019, ' + author
 extensions = [
     'nbsphinx',
     'sphinx.ext.autodoc',
-    'sphinx.ext.intersphinx',
+    #'sphinx.ext.intersphinx',
 ]
 
 highlight_language = 'none'
