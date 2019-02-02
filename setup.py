@@ -32,4 +32,10 @@ setup(
         'Topic :: Utilities',
     ],
     zip_safe=True,
+    entry_points={
+        'nbconvert.exporters': [
+            'jupyter = jupyter_format.nbconvert_integration:Exporter',
+            'jupyter_notebook = jupyter_format.nbconvert_integration:Importer',
+        ],
+    },
 )
