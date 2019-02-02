@@ -11,7 +11,7 @@ markdown
     # Installation
     
     Since `jupyter_format` is in an experimental state,
-    it deliberatly *not* available on [PyPI](https://pypi.org).
+    it is deliberatly *not* available on [PyPI](https://pypi.org).
     
     But if you want to play around with it,
     you can get it from Github and make an "editable" installation with
@@ -42,7 +42,7 @@ markdown
     
         python3 -m jupyterlab --generate-config
     
-    If you still use the Classic Notebook, use
+    If you still use the Classic Notebook, generate the file with
     
         python3 -m notebook --generate-config
     
@@ -52,11 +52,21 @@ markdown
     ```python
     c.NotebookApp.contents_manager_class = 'jupyter_format.contents_manager.FileContentsManager'
     ```
+
+    <div class="alert alert-info">
+
+    At the time of writing this,
+    JupyterLab is not yet able to open `*.jupyter` files by double-clicking.
+    You have to right-click and use "Open With" $\to$ "Notebook".
+    See also https://github.com/jupyterlab/jupyterlab/issues/4924 and
+    https://github.com/jupyterlab/jupyterlab/pull/5247.
+
+    </div>
 markdown
     ## Usage on Binder
     
     If you want to use the new format on https://mybinder.org (which is great!),
-    just create a configuration in your repository using the path
+    just create a configuration file in your repository using the path
     
         .jupyter/jupyter_notebook_config.py
     
