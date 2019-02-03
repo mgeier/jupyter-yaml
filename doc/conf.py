@@ -5,12 +5,23 @@ copyright = '2019, ' + author
 extensions = [
     'nbsphinx',
     'sphinx.ext.autodoc',
-    #'sphinx.ext.intersphinx',
+    'sphinx.ext.viewcode',
+    'sphinx.ext.intersphinx',
 ]
 
 highlight_language = 'none'
 master_doc = 'index'
 exclude_patterns = ['**.ipynb_checkpoints', 'my-new-notebook.*']
+
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/3', None),
+    'nbconvert': ('https://nbconvert.readthedocs.io/en/latest', None),
+    'nbformat': ('https://nbformat.readthedocs.io/en/latest', None),
+}
+
+default_role = 'any'
+
+autodoc_inherit_docstrings = False
 
 # -- nbsphinx-related options ---------------------------------------------
 

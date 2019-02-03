@@ -10,6 +10,20 @@ markdown
 markdown
     # An Experimental New Storage Format For Jupyter Notebooks
     
+    Source code repository and issue tracker:
+    https://github.com/mgeier/jupyter-format/
+    
+    License: MIT -- see the file ``LICENSE`` for details.
+    
+    <div class="alert alert-info">
+    
+    **Note:**
+    
+    All source files for this documentation are Jupyter notebooks
+    stored in the proposed new storage format.
+    
+    </div>
+    
     <div class="alert alert-warning">
     
     **WARNING:**
@@ -20,8 +34,9 @@ markdown
     
     </div>
 markdown
-    * [Motivation](motivation.jupyter)
     * [Installation](installation.jupyter)
+    * [Motivation](motivation.jupyter)
+    * [Specification](spec.jupyter)
     * [Conversion](nbconvert.jupyter)
     * [API Documentation](api.jupyter)
   metadata

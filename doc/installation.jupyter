@@ -14,7 +14,8 @@ markdown
     it is deliberately *not* available on [PyPI](https://pypi.org).
     
     But if you want to play around with it,
-    you can get it from Github and make an "editable" installation with
+    you can get it from [Github](https://github.com/mgeier/jupyter-format)
+    and make an "editable" installation with
     
         git clone https://github.com/mgeier/jupyter-format.git
         cd jupyter-format
@@ -28,7 +29,7 @@ markdown
     
         python3 -m pip install git+https://github.com/mgeier/jupyter-format.git@master --user
 markdown
-    ## JupyterLab/Notebook Integration
+    ## JupyterLab and Classic Notebook Integration
     
     If you want to be able to load and save Jupyter notebooks in the new format,
     you can specify a custom "contents manager" in your configuration.

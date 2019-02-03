@@ -1,6 +1,8 @@
-"""JupyterLab integration.
+"""JupyterLab and Classic Notebook integration.
 
-c.NotebookApp.contents_manager_class = 'jupyter_format.contents_manager.FileContentsManager'
+Add the following line to your ``jupyter_notebook_config.py``::
+
+    c.NotebookApp.contents_manager_class = 'jupyter_format.contents_manager.FileContentsManager'
 
 """
 import notebook.services.contents.filemanager as _fm

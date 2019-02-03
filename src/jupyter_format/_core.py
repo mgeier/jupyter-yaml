@@ -7,11 +7,19 @@ import nbformat as _nbformat
 SUFFIX = '.jupyter'
 _TERMINATOR = 'the end'
 
-# RegEx from nbformat JSON schema:
+# Regular expression from nbformat JSON schema:
 _RE_JSON = _re.compile('^application/(.*\\+)?json$')
 
 
 def generate_lines(nb):
+    """Generator yielding lines to be written to ``.jupyter`` files.
+
+    Each of the lines has a line separator at the end, therefore it can
+    e.g. be used in :meth:`~io.IOBase.writelines`.
+
+    :param nbformat.NotebookNode nb: A notebook node.
+
+    """
     if nb.nbformat != 4:
         raise RuntimeError('Currently, only notebook version 4 is supported')
     yield _line('', 'nbformat', nb.nbformat)
@@ -39,18 +47,28 @@ def generate_lines(nb):
 
 
 def serialize(nb):
+    """Convert a Jupyter notebook to a string in ``.jupyter`` format.
+
+    :param nbformat.NotebookNode nb: A notebook node.
+    :returns: ``.jupyter`` file content.
+    :rtype: str
+
+    """
     return ''.join(generate_lines(nb))
 
 
 def deserialize(source):
-    """
-
-    *source* must be either a `str` or an iterable of `str`.
+    """Convert ``.jupyter`` string representation to Jupyter notebook.
 
     Lines have to be terminated with ``'\\n'``
-    (a.k.a. "universal newlines" mode).
+    (a.k.a.  :term:`universal newlines` mode).
 
-    If *source* is a list, line terminators may be omitted.
+    If *source* is an iterable, line terminators may be omitted.
+
+    :param source: Content of ``.jupyter`` file.
+    :type source: str or iterable of str
+    :returns: A notebook node.
+    :rtype: nbformat.NotebookNode
 
     """
     if isinstance(source, str):
@@ -79,6 +97,19 @@ def deserialize(source):
     finally:
         parser.close()
     return nb
+
+
+class ParseError(Exception):
+    """Exception that is thrown on errors during reading.
+
+    This reports the line number where the error occured.
+
+    """
+
+    def __str__(self):
+        if len(self.args) == 2:
+            return 'Line {1}: {0}'.format(*self.args)
+        return super().__str__()
 
 
 def _get_parser(nb):
@@ -309,14 +340,6 @@ def _parse_json(text):
     return data
 
 
-class ParseError(Exception):
-
-    def __str__(self):
-        if len(self.args) == 2:
-            return 'Line {1}: {0}'.format(*self.args)
-        return super().__str__()
-
-
 def _line(prefix, key, value=None):
     if value is None:
         return '{}{}\n'.format(prefix, key)
@@ -327,7 +350,6 @@ def _line(prefix, key, value=None):
 def _mime_bundle(data):
     # TODO: sort MIME types?
     # TODO: alphabetically, by importance?
-    # TODO: text-based formats first?
     for k, v in data.items():
         if _RE_JSON.match(k):
             yield from _json_block('  - ' + k, v)
@@ -350,7 +372,6 @@ def _code_cell_output(out):
     elif out.output_type in ('display_data', 'execute_result'):
         yield _line('  ', out.output_type)
         # TODO: check if out.execution_count matches cell.execution_count?
-        # TODO: is "data" required? error message?
         if out.data:
             yield from _mime_bundle(out.data)
         if out.metadata:
@@ -362,8 +383,6 @@ def _code_cell_output(out):
         yield _line('  - ', 'evalue')
         yield from _indented_block(out.evalue)
         yield _line('  - ', 'traceback')
-        # NB: Traceback lines don't seem to be \n-terminated,
-        #     but they may contain \n characters in the middle!
         separator = ''
         for frame in out.traceback:
             if separator:
@@ -393,5 +412,4 @@ def _json_block(key, value):
 
 def _serialize_json(data):
     # Options should be the same as in nbformat!
-    # TODO: allow bytes? see BytesEncoder?
     return _json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)

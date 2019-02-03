@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
-"""Script to replace .ipynb with .jupyter files.
+"""Script to recursively replace ``.ipynb`` with ``.jupyter`` files.
 
-Usage to apply this to the whole history of a Git branch:
+Usage::
+
+    python3 -m jupyter_format.replace_all --recursive --yes
+
+WARNING: This deletes all original files!
+
+Usage to apply this to the whole history of a Git branch::
 
     git filter-branch --tree-filter "python3 -m jupyter_format.replace_all --recursive --yes"
 
@@ -13,7 +19,15 @@ from jupyter_format.exporters import JupyterExporter
 from nbconvert.writers import FilesWriter
 
 
-def convert_to_jupyter(path):
+def ipynb_to_jupyter(path):
+    """Replace given ``.ipynb`` file with a ``.jupyter`` file.
+
+    WARNING: This deletes the original file!
+
+    :param path: Path to ``.ipynb`` file.
+    :type path: os.PathLike or str
+
+    """
     path = Path(path)
     exporter = JupyterExporter()
     nb, resources = exporter.from_filename(str(path))
@@ -23,8 +37,18 @@ def convert_to_jupyter(path):
 
 
 def replace_all_recursive(start_dir, mapfunction=map):
+    """Replace all ``.ipynb`` files recursively.
+
+    WARNING: This deletes all original files!
+
+    :param path: Starting directory.
+    :type path: os.PathLike or str
+    :param mapfunction: :func:`map`-like function that can be provided
+        in order to enable parallelization.
+
+    """
     notebooks = Path(start_dir).rglob('*.ipynb')
-    for _ in mapfunction(convert_to_jupyter, notebooks):
+    for _ in mapfunction(ipynb_to_jupyter, notebooks):
         # NB: A lazy mapfunction must be consumed to produce its side effects
         pass
 

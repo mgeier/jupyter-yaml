@@ -1,7 +1,4 @@
-"""
-"""
-import json as _json
-
+"""Exporters for nbconvert."""
 import nbconvert.exporters as _exp
 import nbformat as _nbformat
 import traitlets as _traitlets
@@ -9,7 +6,11 @@ import jupyter_format as _jf
 
 
 class JupyterImportMixin:
-    """Allow ``*.jupyter`` files as input to exporters."""
+    """Allow ``*.jupyter`` files as input to exporters.
+
+    This is used in all exporters as a "mixin" class.
+
+    """
 
     def from_filename(self, filename, resources=None, **kw):
         if filename.endswith(_jf.SUFFIX):
@@ -41,39 +42,39 @@ class JupyterExporter(JupyterImportMixin, _exp.Exporter):
 
 
 class TemplateExporter(JupyterImportMixin, _exp.TemplateExporter):
-    pass
+    """See :class:`nbconvert.exporters.TemplateExporter`."""
 
 
 class HTMLExporter(JupyterImportMixin, _exp.HTMLExporter):
-    pass
+    """See :class:`nbconvert.exporters.HTMLExporter`."""
 
 
 class SlidesExporter(JupyterImportMixin, _exp.SlidesExporter):
-    pass
+    """See :class:`nbconvert.exporters.SlidesExporter`."""
 
 
 class LatexExporter(JupyterImportMixin, _exp.LatexExporter):
-    pass
+    """See :class:`nbconvert.exporters.LatexExporter`."""
 
 
 class PDFExporter(JupyterImportMixin, _exp.PDFExporter):
-    pass
+    """See :class:`nbconvert.exporters.PDFExporter`."""
 
 
 class MarkdownExporter(JupyterImportMixin, _exp.MarkdownExporter):
-    pass
+    """See :class:`nbconvert.exporters.MarkdownExporter`."""
 
 
 class PythonExporter(JupyterImportMixin, _exp.PythonExporter):
-    pass
+    """See :class:`nbconvert.exporters.PythonExporter`."""
 
 
 class RSTExporter(JupyterImportMixin, _exp.RSTExporter):
-    pass
+    """See :class:`nbconvert.exporters.RSTExporter`."""
 
 
 class NotebookExporter(JupyterImportMixin, _exp.NotebookExporter):
-    pass
+    """See :class:`nbconvert.exporters.NotebookExporter`."""
 
 
 class ASCIIDocExporter(JupyterImportMixin, _exp.ASCIIDocExporter):

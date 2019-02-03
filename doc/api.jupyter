@@ -8,9 +8,75 @@ markdown
      "nbsphinx": "hidden"
     }
 markdown
-    # API Documentation
+    This notebook contains mostly "raw" cells in reStructuredText format,
+    which are used to auto-generate the ...
     
-    TODO
+    # API Documentation
+raw
+    .. currentmodule:: jupyter_format
+    
+    .. autofunction:: generate_lines
+    
+    .. autofunction:: serialize
+    
+    .. autofunction:: deserialize
+    
+    .. autoclass:: ParseError
+  metadata
+    {
+     "raw_mimetype": "text/restructuredtext"
+    }
+markdown
+    ## Contents Manager
+raw
+    .. currentmodule:: jupyter_format.contents_manager
+    
+    .. autoclass:: FileContentsManager
+  metadata
+    {
+     "raw_mimetype": "text/restructuredtext"
+    }
+markdown
+    ## Exporters for `nbconvert`
+raw
+    .. currentmodule:: jupyter_format.exporters
+    
+    .. autoclass:: JupyterImportMixin
+       :members:
+       :undoc-members:
+    
+    .. autoclass:: JupyterExporter
+       :members:
+       :undoc-members:
+    
+    The rest of the exporters are just the ones from `nbconvert.exporters`,
+    enhanced with the `JupyterImportMixin`.
+    
+    .. autoclass:: ASCIIDocExporter
+    .. autoclass:: HTMLExporter
+    .. autoclass:: LatexExporter
+    .. autoclass:: MarkdownExporter
+    .. autoclass:: NotebookExporter
+    .. autoclass:: PDFExporter
+    .. autoclass:: PythonExporter
+    .. autoclass:: RSTExporter
+    .. autoclass:: ScriptExporter
+    .. autoclass:: SlidesExporter
+    .. autoclass:: TemplateExporter
+  metadata
+    {
+     "raw_mimetype": "text/restructuredtext"
+    }
+markdown
+    ## Batch Conversion with `replace_all`
+raw
+    .. automodule:: jupyter_format.replace_all
+       :members:
+       :undoc-members:
+  metadata
+    {
+     "raw_mimetype": "text/restructuredtext"
+    }
 metadata
     {
      "kernelspec": {
