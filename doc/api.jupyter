@@ -8,26 +8,9 @@ markdown
      "nbsphinx": "hidden"
     }
 markdown
-    # An Experimental New Storage Format For Jupyter Notebooks
+    # API Documentation
     
-    <div class="alert alert-warning">
-    
-    **WARNING:**
-    
-    This is in an experimental state.
-    Neither the format nor the implementation is stable and
-    either can change at any time without prior notice.
-    
-    </div>
-markdown
-    * [Motivation](motivation.jupyter)
-    * [Installation](installation.jupyter)
-    * [Conversion](nbconvert.jupyter)
-    * [API Documentation](api.jupyter)
-  metadata
-    {
-     "nbsphinx-toctree": {}
-    }
+    TODO
 metadata
     {
      "kernelspec": {
