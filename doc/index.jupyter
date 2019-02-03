@@ -21,6 +21,7 @@ markdown
     </div>
 markdown
     * [Installation](installation.jupyter)
+    * [Conversion](nbconvert.jupyter)
   metadata
     {
      "nbsphinx-toctree": {}

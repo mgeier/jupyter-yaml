@@ -10,7 +10,7 @@ extensions = [
 
 highlight_language = 'none'
 master_doc = 'index'
-exclude_patterns = ['**.ipynb_checkpoints']
+exclude_patterns = ['**.ipynb_checkpoints', 'my-new-notebook.*']
 
 # -- nbsphinx-related options ---------------------------------------------
 
@@ -89,6 +89,15 @@ html_scaled_image_link = False
 latex_elements = {
     'papersize': 'a4paper',
     'printindex': '',
+    'sphinxsetup': r"""
+        VerbatimColor={HTML}{F5F5F5},
+        VerbatimBorderColor={HTML}{E0E0E0},
+        noteBorderColor={HTML}{E0E0E0},
+        noteborder=1.5pt,
+        warningBorderColor={HTML}{E0E0E0},
+        warningborder=1.5pt,
+        warningBgColor={HTML}{FBFBFB},
+    """,
     'preamble': r"""
 \usepackage[sc,osf]{mathpazo}
 \linespread{1.05}  % see http://www.tug.dk/FontCatalogue/urwpalladio/
